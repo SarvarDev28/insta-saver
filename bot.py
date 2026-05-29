@@ -134,7 +134,7 @@ async def handle_message(client, message: Message):
                 try:
                     await message.reply_video(
                         str(filepath),
-                        caption="📥 Instagram dan yuklandi \n" "👉 @InstaDownloader_uzBot",
+                        caption="📥 Instagram dan yuklandi",
                         supports_streaming=True
                     )
                 except Exception:
