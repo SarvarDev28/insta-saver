@@ -100,7 +100,8 @@ async def cmd_help(client, message: Message):
         "⚠️ **Ishlamaydi:**\n"
         "• Private akkaunt postlari\n"
         "• O'chirilgan postlar\n\n"
-        "📩 Muammo bo'lsa: /start"
+        "📩Talab va taklif: @theSarvar_04
+        "InstaSaver: /start"
     )
 
 
@@ -133,7 +134,7 @@ async def handle_message(client, message: Message):
                 try:
                     await message.reply_video(
                         str(filepath),
-                        caption="📥 Instagram dan yuklandi",
+                        caption="📥 Instagram dan yuklandi \n" "👉 @InstaDownloader_uzBot",
                         supports_streaming=True
                     )
                 except Exception:
