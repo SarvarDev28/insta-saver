@@ -133,18 +133,18 @@ async def handle_message(client, message: Message):
                 try:
                     await message.reply_video(
                         str(filepath),
-                        caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot",
+                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
                         supports_streaming=True
                     )
                 except Exception:
-                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
+                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot")
             elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
                 try:
-                    await message.reply_photo(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
+                    await message.reply_photo(str(filepath), caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot")
                 except Exception:
-                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
+                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot")
             else:
-                await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
+                await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot")
 
         await status.delete()
 
