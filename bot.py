@@ -100,7 +100,7 @@ async def cmd_help(client, message: Message):
         "⚠️ **Ishlamaydi:**\n"
         "• Private akkaunt postlari\n"
         "• O'chirilgan postlar\n\n"
-        "📩 Muammo bo'lsa: /start"
+        "📩 **Talab va takliflar:** @theSarvar_04"
     )
 
 
@@ -133,18 +133,18 @@ async def handle_message(client, message: Message):
                 try:
                     await message.reply_video(
                         str(filepath),
-                        caption="📥 Instagram dan yuklandi",
+                        caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot",
                         supports_streaming=True
                     )
                 except Exception:
-                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi")
+                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
             elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
                 try:
-                    await message.reply_photo(str(filepath), caption="📥 Instagram dan yuklandi")
+                    await message.reply_photo(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
                 except Exception:
-                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi")
+                    await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
             else:
-                await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi")
+                await message.reply_document(str(filepath), caption="📥 Instagram dan yuklandi | @InstaDownloader_uzBot")
 
         await status.delete()
 
