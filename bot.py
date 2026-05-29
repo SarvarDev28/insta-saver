@@ -100,8 +100,7 @@ async def cmd_help(client, message: Message):
         "⚠️ **Ishlamaydi:**\n"
         "• Private akkaunt postlari\n"
         "• O'chirilgan postlar\n\n"
-        "📩Talab va taklif: @theSarvar_04
-        "InstaSaver: /start"
+        "📩 Muammo bo'lsa: /start"
     )
 
 
