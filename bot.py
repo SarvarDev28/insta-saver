@@ -182,7 +182,8 @@ async def cmd_stats(client, message: Message):
 async def handle_message(client, message: Message):
     url = message.text.strip()
 
-    is_group = message.chat.type in ["group", "supergroup"]
+    from pyrogram.enums import ChatType
+    is_group = message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]
 
     if is_group:
         if not is_instagram_url(url):
