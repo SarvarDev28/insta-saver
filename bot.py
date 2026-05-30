@@ -2,11 +2,13 @@ import subprocess
 subprocess.run(["pip", "install", "--upgrade", "yt-dlp", "pyrogram", "tgcrypto"], capture_output=True)
 
 import os
+import json
 import asyncio
 import logging
 import re
 import yt_dlp
 from pathlib import Path
+from datetime import date
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -16,11 +18,53 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 app = Client("instabot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
+
+USERS_FILE = Path("users.json")
+
+
+def load_users() -> dict:
+    if USERS_FILE.exists():
+        try:
+            with open(USERS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"users": {}, "total": 0}
+
+
+def save_user(user_id: int, first_name: str, username: str):
+    data = load_users()
+    today = str(date.today())
+    uid = str(user_id)
+
+    if uid not in data["users"]:
+        data["users"][uid] = {
+            "first_name": first_name,
+            "username": username,
+            "joined": today
+        }
+        data["total"] = len(data["users"])
+        with open(USERS_FILE, "w") as f:
+            json.dump(data, f)
+
+
+def get_stats() -> dict:
+    data = load_users()
+    today = str(date.today())
+    today_count = sum(
+        1 for u in data["users"].values()
+        if u.get("joined") == today
+    )
+    return {
+        "total": data.get("total", 0),
+        "today": today_count
+    }
 
 
 def is_instagram_url(url: str) -> bool:
@@ -78,8 +122,11 @@ def cleanup(chat_id: int):
 
 @app.on_message(filters.command("start"))
 async def cmd_start(client, message: Message):
+    user = message.from_user
+    save_user(user.id, user.first_name, user.username or "")
+
     await message.reply(
-        f"👋 Salom, **{message.from_user.first_name}**!\n\n"
+        f"👋 Salom, **{user.first_name}**!\n\n"
         "📥 Men **Instagram Saver** botman.\n\n"
         "📌 Nima yuklay olaman:\n"
         "• 🎬 Reels\n"
@@ -87,6 +134,8 @@ async def cmd_start(client, message: Message):
         "• 📖 Stories\n\n"
         "➡️ Faqat Instagram havolasini yuboring!"
     )
+
+
 
 
 @app.on_message(filters.command("help"))
@@ -104,7 +153,21 @@ async def cmd_help(client, message: Message):
     )
 
 
-@app.on_message(filters.text & ~filters.command(["start", "help"]))
+@app.on_message(filters.command("stats"))
+async def cmd_stats(client, message: Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.reply("⛔ Bu buyruq faqat admin uchun.")
+        return
+
+    stats = get_stats()
+    await message.reply(
+        f"📊 **Bot statistikasi:**\n\n"
+        f"👥 Jami foydalanuvchilar: **{stats['total']}** ta\n"
+        f"📅 Bugun qo'shildi: **{stats['today']}** ta"
+    )
+
+
+@app.on_message(filters.text & ~filters.command(["start", "help", "stats"]))
 async def handle_message(client, message: Message):
     url = message.text.strip()
 
