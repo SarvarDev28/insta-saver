@@ -182,13 +182,18 @@ async def cmd_stats(client, message: Message):
 async def handle_message(client, message: Message):
     url = message.text.strip()
 
-    if not url.startswith("http"):
-        await message.reply("📎 Instagram havolasini yuboring.\n\nMasalan:\n`https://www.instagram.com/reel/ABC123/`")
-        return
+    is_group = message.chat.type in ["group", "supergroup"]
 
-    if not is_instagram_url(url):
-        await message.reply("⚠️ Faqat **Instagram** havolalarini qabul qilaman.\n\nMasalan:\n`https://www.instagram.com/reel/...`")
-        return
+    if is_group:
+        if not is_instagram_url(url):
+            return
+    else:
+        if not url.startswith("http"):
+            await message.reply("📎 Instagram havolasini yuboring.\n\nMasalan:\n`https://www.instagram.com/reel/ABC123/`")
+            return
+        if not is_instagram_url(url):
+            await message.reply("⚠️ Faqat **Instagram** havolalarini qabul qilaman.\n\nMasalan:\n`https://www.instagram.com/reel/...`")
+            return
 
     status = await message.reply("⏳ Yuklanmoqda...")
 
