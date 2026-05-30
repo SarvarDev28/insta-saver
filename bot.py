@@ -1,14 +1,16 @@
 import subprocess
-subprocess.run(["pip", "install", "--upgrade", "yt-dlp", "pyrogram", "tgcrypto"], capture_output=True)
+subprocess.run(["pip", "install", "--upgrade", "yt-dlp", "pyrogram", "tgcrypto", "flask"], capture_output=True)
 
 import os
 import json
 import asyncio
 import logging
 import re
+import threading
 import yt_dlp
 from pathlib import Path
 from datetime import date
+from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -26,6 +28,17 @@ DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 USERS_FILE = Path("users.json")
+
+# Flask keep-alive
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "Bot ishlayapti ✅"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    flask_app.run(host="0.0.0.0", port=port)
 
 
 def load_users() -> dict:
@@ -136,8 +149,6 @@ async def cmd_start(client, message: Message):
     )
 
 
-
-
 @app.on_message(filters.command("help"))
 async def cmd_help(client, message: Message):
     await message.reply(
@@ -218,5 +229,9 @@ async def handle_message(client, message: Message):
 
 
 if __name__ == "__main__":
+    # Flask ni alohida threadda ishga tushir
+    t = threading.Thread(target=run_flask)
+    t.daemon = True
+    t.start()
     logger.info("✅ InstaBot ishga tushdi")
     app.run()
