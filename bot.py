@@ -68,10 +68,15 @@ async def download_media(url: str, chat_id: int):
 
     ydl_opts = {
         "outtmpl": output_template,
-        "format": "best[filesize<50M]/best",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
+        "postprocessors": [{
+            "key": "FFmpegVideoConvertor",
+            "preferedformat": "mp4",
+        }],
     }
 
     try:
