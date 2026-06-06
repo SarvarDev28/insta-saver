@@ -1,6 +1,3 @@
-import subprocess
-subprocess.run(["pip", "install", "--upgrade", "yt-dlp", "pyrogram", "tgcrypto", "flask", "redis"], capture_output=True)
-
 import os
 import asyncio
 import logging
@@ -19,12 +16,24 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_ID = int(os.getenv("API_ID"))
+API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-REDIS_URL = os.getenv("REDIS_URL", "redis://red-d8dbhc3bc2fs73efbpk0:6379")
+REDIS_URL = os.getenv("REDIS_URL")
 
-r = redis.from_url(REDIS_URL, decode_responses=True)
+if not BOT_TOKEN or not API_ID or not API_HASH:
+    raise ValueError("BOT_TOKEN, API_ID va API_HASH environment variable lar o'rnatilishi shart!")
+
+# Redis ulanishi (ixtiyoriy — REDIS_URL bo'lmasa statistika ishlamaydi)
+r = None
+if REDIS_URL:
+    try:
+        r = redis.from_url(REDIS_URL, decode_responses=True)
+        r.ping()
+        logger.info("✅ Redis ga ulandi")
+    except Exception as e:
+        logger.warning(f"⚠️ Redis ga ulanib bo'lmadi: {e}. Statistika o'chirilgan.")
+        r = None
 
 app = Client("instabot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -44,14 +53,17 @@ def run_flask():
 
 
 def save_user(user_id: int):
+    if not r:
+        return
     today = str(date.today())
     uid = str(user_id)
-    # Agar yangi user bo'lsa qo'sh
     r.sadd("users:all", uid)
     r.sadd(f"users:date:{today}", uid)
 
 
 def get_stats() -> dict:
+    if not r:
+        return {"total": 0, "today": 0}
     today = str(date.today())
     total = r.scard("users:all") or 0
     today_count = r.scard(f"users:date:{today}") or 0
@@ -59,7 +71,7 @@ def get_stats() -> dict:
 
 
 def is_instagram_url(url: str) -> bool:
-    pattern = r'(https?://)?(www\.)?instagram\.com/(p|reel|tv|stories)/.+'
+    pattern = r'(https?://)?(www\.)?(instagram\.com|instagr\.am)/(p|reel|reels|tv|stories)/[^\s]+'
     return bool(re.match(pattern, url))
 
 
@@ -80,7 +92,7 @@ async def download_media(url: str, chat_id: int):
     }
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
