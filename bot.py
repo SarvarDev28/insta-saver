@@ -47,6 +47,10 @@ app = Client("instabot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
+# URL xotira — callback_data 64 bayt limiti uchun
+# URL ni ID bilan saqlaymiz
+pending_urls = {}  # {msg_id: url}
+
 # Flask keep-alive
 flask_app = Flask(__name__)
 
@@ -298,11 +302,7 @@ async def cmd_start(client, message: Message):
         "🎯 **Buyruqlar:**\n"
         "• /favorites — Sevimli yuklanishlar\n"
         "• /help — Qo'llanma\n\n"
-        "➡️ Instagram havolasini yuboring!",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Kanal", url="https://t.me/InstaDownloader_uzBot"),
-             InlineKeyboardButton("💬 Yordam", callback_data="help")]
-        ])
+        "➡️ Instagram havolasini yuboring!"
     )
 
 
@@ -395,16 +395,18 @@ async def handle_message(client, message: Message):
             return
 
     # 📊 Inline tugmalar — Video yoki Audio tanlash
-    await message.reply(
+    sent = await message.reply(
         f"🔗 **Link topildi!**\n\n"
         f"Qanday formatda yuklayman?",
         reply_markup=InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("🎬 Video", callback_data=f"video|{url}"),
-                InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"audio|{url}"),
+                InlineKeyboardButton("🎬 Video", callback_data=f"video|{message.id}"),
+                InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"audio|{message.id}"),
             ]
         ])
     )
+    # URL ni xotirada saqlash
+    pending_urls[message.id] = url
 
 
 # ═══════════════════════════════════════════════════════════
@@ -414,9 +416,17 @@ async def handle_message(client, message: Message):
 @app.on_callback_query(filters.regex(r"^(video|audio)\|"))
 async def callback_download(client, callback: CallbackQuery):
     data = callback.data
-    mode, url = data.split("|", 1)
+    mode, msg_id_str = data.split("|", 1)
+    msg_id = int(msg_id_str)
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
+
+    # URL ni xotiradan olish
+    url = pending_urls.pop(msg_id, None)
+    if not url:
+        await callback.answer("⚠️ Link eskirgan. Qayta yuboring.", show_alert=True)
+        await callback.message.delete()
+        return
 
     # Tugmani o'chirish
     await callback.message.edit_reply_markup(None)
@@ -534,20 +544,6 @@ async def callback_download(client, callback: CallbackQuery):
         await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
     finally:
         cleanup(chat_id)
-
-
-# Help callback
-@app.on_callback_query(filters.regex(r"^help$"))
-async def callback_help(client, callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.reply(
-        "📖 **Qo'llanma:**\n\n"
-        "1️⃣ Instagram da post/reel/story ni oching\n"
-        "2️⃣ Havolasini nusxalang\n"
-        "3️⃣ Menga yuboring\n"
-        "4️⃣ 🎬 Video yoki 🎵 Audio tanlang\n"
-        "5️⃣ Yuklanib keladi ✅"
-    )
 
 
 # ═══════════════════════════════════════════════════════════
