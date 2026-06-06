@@ -80,7 +80,7 @@ async def download_media(url: str, chat_id: int):
 
     ydl_opts = {
         "outtmpl": output_template,
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "format": "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
@@ -89,6 +89,9 @@ async def download_media(url: str, chat_id: int):
             "key": "FFmpegVideoConvertor",
             "preferedformat": "mp4",
         }],
+        "postprocessor_args": {
+            "FFmpegVideoConvertor": ["-c:v", "libx264", "-c:a", "aac", "-movflags", "+faststart"]
+        },
     }
 
     try:
