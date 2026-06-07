@@ -861,8 +861,10 @@ async def callback_audio(client, callback: CallbackQuery):
             ydl_opts = {
                 "quiet": True,
                 "no_warnings": True,
-                "socket_timeout": 15,
+                "socket_timeout": 20,
                 "skip_download": True,
+                "extract_flat": "in_playlist",
+                "no_check_certificates": True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 results = ydl.extract_info(f"ytsearch5:{track_name}", download=False)
@@ -892,7 +894,8 @@ async def callback_audio(client, callback: CallbackQuery):
         text += f"{i}. {title}{dur_str}\n"
         search_results.append({
             "url": entry.get("webpage_url") or entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}",
-            "title": title
+            "title": title,
+            "id": entry.get("id", "")
         })
 
     # Natijalarni xotiraga saqlash
@@ -935,7 +938,7 @@ async def callback_music_select(client, callback: CallbackQuery):
         return
 
     selected = results[index]
-    yt_url = selected["url"]
+    yt_url = selected.get("url") or f"https://www.youtube.com/watch?v={selected.get('id', '')}"
     title = selected["title"]
 
     await callback.answer("🎵 Yuklanmoqda...", show_alert=False)
@@ -1005,7 +1008,7 @@ async def callback_music_video(client, callback: CallbackQuery):
         return
 
     selected = results[0]
-    yt_url = selected["url"]
+    yt_url = selected.get("url") or f"https://www.youtube.com/watch?v={selected.get('id', '')}"
     title = selected["title"]
 
     await callback.answer("🎬 Video yuklanmoqda...", show_alert=False)
