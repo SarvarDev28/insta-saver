@@ -258,102 +258,128 @@ async def download_video(url: str, chat_id: int):
 
 
 async def download_photo(url: str, chat_id: int):
-    """Rasmni yuklab olish — yt-dlp dan URL olib, to'g'ridan-to'g'ri yuklab oladi"""
+    """Rasmni yuklab olish — instaloader orqali"""
     try:
         loop = asyncio.get_running_loop()
 
-        def _extract_and_download():
-            ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
-                "socket_timeout": 30,
-                "skip_download": False,
-                "outtmpl": str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s"),
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(url, download=True)
+        def _download_with_instaloader():
+            import instaloader
 
-        await loop.run_in_executor(None, _extract_and_download)
+            L = instaloader.Instaloader(
+                download_videos=False,
+                download_video_thumbnails=False,
+                download_geotags=False,
+                download_comments=False,
+                save_metadata=False,
+                compress_json=False,
+                quiet=True,
+                dirname_pattern=str(DOWNLOAD_DIR),
+                filename_pattern=f"{chat_id}_{{shortcode}}"
+            )
 
+            # URL dan shortcode olish
+            shortcode = None
+            import re as _re
+            match = _re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
+            if match:
+                shortcode = match.group(1)
+
+            if not shortcode:
+                return False
+
+            try:
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
+                L.download_post(post, target="")
+            except Exception:
+                # Target ni DOWNLOAD_DIR ga moslaymiz
+                try:
+                    post = instaloader.Post.from_shortcode(L.context, shortcode)
+                    # Manually download
+                    if post.typename == 'GraphSidecar':
+                        # Carousel — ko'p rasm
+                        for i, node in enumerate(post.get_sidecar_nodes()):
+                            if not node.is_video:
+                                img_url = node.display_url
+                                filepath = DOWNLOAD_DIR / f"{chat_id}_photo_{i}.jpg"
+                                import urllib.request
+                                urllib.request.urlretrieve(img_url, str(filepath))
+                    else:
+                        if not post.is_video:
+                            img_url = post.url
+                            filepath = DOWNLOAD_DIR / f"{chat_id}_photo_0.jpg"
+                            import urllib.request
+                            urllib.request.urlretrieve(img_url, str(filepath))
+                except Exception:
+                    return False
+
+            return True
+
+        result = await loop.run_in_executor(None, _download_with_instaloader)
+
+        # Fayllarni tekshirish
         files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
         if files:
             return files, None
-        return None, "❌ Fayl topilmadi."
 
-    except yt_dlp.utils.DownloadError as e:
-        err = str(e).lower()
-        if "private" in err:
-            return None, "❌ Bu akkaunt yoki post xususiy (private)."
-        elif "login" in err or "sign in" in err or "cookie" in err:
-            return None, "❌ Instagram login talab qilmoqda. Admin bilan bog'laning."
-        elif "not available" in err or "removed" in err:
-            return None, "❌ Bu post mavjud emas yoki o'chirilgan."
-        elif "no video" in err:
-            # yt-dlp rasm yuklay olmadi — thumbnail orqali urinib ko'ramiz
+        if not result:
             return await _download_photo_fallback(url, chat_id)
-        else:
-            return None, f"❌ Yuklab bo'lmadi.\n`{str(e)[:120]}`"
+
+        return None, "❌ Rasm topilmadi."
+
     except Exception as e:
-        return None, f"❌ Xatolik yuz berdi: `{str(e)[:120]}`"
+        # Fallback urinish
+        return await _download_photo_fallback(url, chat_id)
 
 
 async def _download_photo_fallback(url: str, chat_id: int):
-    """Fallback: yt-dlp extract_info dan thumbnail URL ni olib yuklab olish"""
+    """Fallback: instaloader Post.from_shortcode dan display_url orqali yuklab olish"""
     try:
+        import instaloader
         import urllib.request
 
         loop = asyncio.get_running_loop()
 
-        def _get_thumbnail():
-            ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
-                "socket_timeout": 15,
-                "skip_download": True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if not info:
-                    return None
+        def _get_photo():
+            L = instaloader.Instaloader(quiet=True)
 
-                # Carousel postlar
-                entries = info.get("entries", [])
-                thumbnails = []
+            # URL dan shortcode olish
+            import re as _re
+            match = _re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
+            if not match:
+                return None
 
-                if entries:
-                    for entry in entries:
-                        if entry:
-                            thumb = entry.get("thumbnail") or entry.get("url")
-                            if thumb:
-                                thumbnails.append(thumb)
-                else:
-                    thumb = info.get("thumbnail") or info.get("url")
-                    if thumb:
-                        thumbnails.append(thumb)
+            shortcode = match.group(1)
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
 
-                return thumbnails
-
-        thumbnails = await loop.run_in_executor(None, _get_thumbnail)
-
-        if not thumbnails:
-            return None, "❌ Rasm topilmadi."
-
-        def _download_images():
             downloaded = []
-            for i, thumb_url in enumerate(thumbnails):
-                ext = ".jpg"
-                filepath = DOWNLOAD_DIR / f"{chat_id}_photo_{i}{ext}"
-                urllib.request.urlretrieve(thumb_url, str(filepath))
-                downloaded.append(filepath)
+
+            if post.typename == 'GraphSidecar':
+                # Carousel post
+                for i, node in enumerate(post.get_sidecar_nodes()):
+                    if not node.is_video:
+                        img_url = node.display_url
+                        filepath = DOWNLOAD_DIR / f"{chat_id}_photo_{i}.jpg"
+                        urllib.request.urlretrieve(img_url, str(filepath))
+                        downloaded.append(filepath)
+            else:
+                if not post.is_video:
+                    img_url = post.url
+                    filepath = DOWNLOAD_DIR / f"{chat_id}_photo_0.jpg"
+                    urllib.request.urlretrieve(img_url, str(filepath))
+                    downloaded.append(filepath)
+
             return downloaded
 
-        files = await loop.run_in_executor(None, _download_images)
+        files = await loop.run_in_executor(None, _get_photo)
 
         if files:
             return files, None
         return None, "❌ Rasm yuklab bo'lmadi."
 
     except Exception as e:
+        err = str(e).lower()
+        if "private" in err or "login" in err:
+            return None, "❌ Bu post xususiy (private) yoki login talab qiladi."
         return None, f"❌ Rasm yuklab bo'lmadi: `{str(e)[:120]}`"
 
 
@@ -592,7 +618,7 @@ async def handle_message(client, message: Message):
         files, error = await download_video(url, message.chat.id)
 
         # Agar video yuklab bo'lmasa — rasm sifatida urinib ko'ramiz
-        if error and ("no video" in str(error).lower() or "not a video" in str(error).lower()):
+        if error and ("no video" in str(error).lower() or "not a video" in str(error).lower() or "there is no video" in str(error).lower()):
             cleanup(message.chat.id)
             files, error = await download_photo(url, message.chat.id)
 
