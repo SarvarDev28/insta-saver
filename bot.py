@@ -335,7 +335,7 @@ async def cmd_start(client, message: Message):
         "• 🖼 Postlar (rasm/video)\n"
         "• 📖 Stories\n\n"
         "🎯 **Buyruqlar:**\n"
-        "• /favorites — Sevimli yuklanishlar\n"
+        "• /favorites — Sevimlilar\n"
         "• /help — Qo'llanma\n\n"
         "➡️ Instagram havolasini yuboring!"
     )
@@ -353,7 +353,7 @@ async def cmd_help(client, message: Message):
         "• Rasm bo'lsa — avtomatik yuklab beradi\n"
         "• Video bo'lsa — Video/Audio tanlash mumkin\n"
         "• Xabar ichida link bo'lsa ham topaman\n"
-        "• /favorites — oxirgi yuklanishlar\n\n"
+        "• /favorites — sevimlilar ro'yxati\n\n"
         "⚠️ **Ishlamaydi:**\n"
         "• Private akkaunt postlari\n"
         "• O'chirilgan postlar\n\n"
@@ -368,14 +368,14 @@ async def cmd_favorites(client, message: Message):
     if not favs:
         await message.reply(
             "⭐ **Sevimlilar ro'yxati bo'sh.**\n\n"
-            "Instagram havolasi yuboring — avtomatik saqlanadi!"
+            "Instagram havolasi yuboring va \"⭐ Sevimlilarga qo'shish\" tugmasini bosing!"
         )
         return
 
-    text = "⭐ **Oxirgi yuklanishlar:**\n\n"
+    text = "⭐ **Sevimlilar:**\n\n"
     for i, url in enumerate(favs, 1):
         short = url.split("?")[0]
-        text += f"{i}. [{short[:50]}...]({url})\n"
+        text += f"{i}. {short}\n"
 
     text += "\n💡 Havolani bosib qayta yuklashingiz mumkin."
     await message.reply(text, disable_web_page_preview=True)
