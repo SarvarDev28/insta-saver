@@ -803,56 +803,95 @@ async def callback_audio(client, callback: CallbackQuery):
     await callback.answer("🎵 Musiqa qidirilmoqda...", show_alert=False)
 
     # Instagram dan musiqa nomini olish
+    track_name = ""
     try:
         loop = asyncio.get_running_loop()
 
         def _get_title():
-            ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
-                "socket_timeout": 15,
-                "skip_download": True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if info:
-                    # Turli fieldlardan musiqa nomini izlaymiz
-                    track = info.get("track") or ""
-                    artist = info.get("artist") or info.get("creator") or ""
-                    title = info.get("title") or ""
-                    description = info.get("description") or ""
+            # 1. yt-dlp bilan urinib ko'rish
+            try:
+                ydl_opts = {
+                    "quiet": True,
+                    "no_warnings": True,
+                    "socket_timeout": 15,
+                    "skip_download": True,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info:
+                        track = info.get("track") or ""
+                        artist = info.get("artist") or info.get("creator") or ""
+                        title = info.get("title") or ""
+                        description = info.get("description") or ""
 
-                    # 1. track + artist
-                    if track:
-                        if artist:
-                            return f"{artist} — {track}"
-                        return track
+                        if track:
+                            if artist:
+                                return f"{artist} — {track}"
+                            return track
 
-                    # 2. title (agar generic bo'lmasa)
-                    generic = ["instagram", "reel", "video", "post"]
-                    if title and not any(g in title.lower() for g in generic):
-                        return title
+                        generic = ["instagram", "reel", "video", "post"]
+                        if title and not any(g in title.lower() for g in generic):
+                            return title
 
-                    # 3. description dan birinchi qatorni olish
-                    if description:
-                        first_line = description.split("\n")[0].strip()
-                        # Hashtag va mention larni olib tashlaymiz
+                        if description:
+                            first_line = description.split("\n")[0].strip()
+                            clean = re.sub(r'[#@]\S+', '', first_line).strip()
+                            if clean and len(clean) > 3:
+                                return clean[:80]
+
+                        if title:
+                            return title
+            except Exception:
+                pass
+
+            # 2. instaloader bilan urinib ko'rish
+            try:
+                import instaloader
+                L = instaloader.Instaloader(quiet=True)
+                match = re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
+                if match:
+                    shortcode = match.group(1)
+                    post = instaloader.Post.from_shortcode(L.context, shortcode)
+                    caption = post.caption or ""
+                    if caption:
+                        first_line = caption.split("\n")[0].strip()
                         clean = re.sub(r'[#@]\S+', '', first_line).strip()
                         if clean and len(clean) > 3:
                             return clean[:80]
+            except Exception:
+                pass
 
-                    # 4. title ni qaytaramiz (bo'sh bo'lmasa)
-                    if title:
-                        return title
-
-                return ""
+            return ""
 
         track_name = await loop.run_in_executor(None, _get_title)
     except Exception:
         track_name = ""
 
     if not track_name:
-        await callback.message.reply("❌ Musiqa nomi aniqlanmadi.")
+        # Nom topilmasa — to'g'ridan-to'g'ri Instagram videodan audio yuklab berish
+        status = await callback.message.reply("🎵 Musiqa yuklanmoqda...")
+        files, error = await download_audio(url, chat_id)
+        if error:
+            await status.edit_text(error)
+            return
+        try:
+            for filepath in files:
+                ext = filepath.suffix.lower()
+                if ext in [".mp3", ".m4a", ".ogg", ".wav"]:
+                    await callback.message.reply_audio(
+                        str(filepath),
+                        caption="🎵 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                    )
+                else:
+                    await callback.message.reply_document(
+                        str(filepath),
+                        caption="🎵 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                    )
+            await status.delete()
+        except Exception as e:
+            await status.edit_text(f"❌ Xatolik: `{str(e)[:100]}`")
+        finally:
+            cleanup(chat_id)
         return
 
     # YouTube dan qidirish
