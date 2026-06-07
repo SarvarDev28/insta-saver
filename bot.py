@@ -16,7 +16,7 @@ from pyrogram.types import (
     InlineKeyboardButton,
     CallbackQuery,
 )
-from pyrogram.enums import ChatType, MessageReactionUpdated
+from pyrogram.enums import ChatType
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -425,23 +425,14 @@ async def handle_message(client, message: Message):
                 )
             return
 
-    # ❤️ Like reaction bosish
+    # ❤️ Like reaction bosish (xavfsiz — versiyaga bog'liq)
     try:
         await app.send_reaction(message.chat.id, message.id, "❤")
+    except AttributeError:
+        # Pyrogram versiyasida send_reaction mavjud emas
+        pass
     except Exception:
-        try:
-            # Pyrogram eski versiyalari uchun alternativ
-            from pyrogram.raw.functions.messages import SendReaction
-            from pyrogram.raw.types import ReactionEmoji
-            await app.invoke(
-                SendReaction(
-                    peer=await app.resolve_peer(message.chat.id),
-                    msg_id=message.id,
-                    reaction=[ReactionEmoji(emoticon="❤")]
-                )
-            )
-        except Exception:
-            pass
+        pass
 
     # 📊 Progress boshlash — media turini aniqlash
     status = await message.reply(ProgressBar.get_stage_text(0))
@@ -647,8 +638,14 @@ async def callback_download(client, callback: CallbackQuery):
 # ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    t = threading.Thread(target=run_flask)
-    t.daemon = True
+    # Flask ni avval ishga tushiramiz — Render port bind ni kutadi
+    t = threading.Thread(target=run_flask, daemon=True)
     t.start()
-    logger.info("✅ InstaBot ishga tushdi")
+    logger.info("✅ Flask server ishga tushdi (port bind qilindi)")
+
+    # Biroz kutamiz — port to'liq ochilsin
+    import time
+    time.sleep(1)
+
+    logger.info("✅ InstaBot ishga tushmoqda...")
     app.run()
