@@ -787,7 +787,7 @@ async def callback_favorite(client, callback: CallbackQuery):
 
 @app.on_callback_query(filters.regex(r"^audio\|"))
 async def callback_audio(client, callback: CallbackQuery):
-    """🎵 Musiqani yuklab olish tugmasi bosilganda"""
+    """🎵 Musiqani yuklab olish — YouTube dan qidirib natijalar ko'rsatish"""
     msg_id = int(callback.data.split("|")[1])
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
@@ -797,25 +797,123 @@ async def callback_audio(client, callback: CallbackQuery):
         await callback.answer("⚠️ Link eskirgan. Qayta yuboring.", show_alert=True)
         return
 
-    # 💾 Cache tekshirish
-    cached = get_cache(url, "audio")
-    if cached:
-        try:
-            await callback.message.reply_audio(
-                cached["file_id"],
-                caption="🎵 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot"
-            )
-            await callback.answer("🎵 Musiqa yuborildi!", show_alert=False)
-            return
-        except Exception:
-            pass
+    await callback.answer("🎵 Musiqa qidirilmoqda...", show_alert=False)
 
-    await callback.answer("🎵 Musiqa yuklanmoqda...", show_alert=False)
+    # Instagram dan musiqa nomini olish
+    try:
+        loop = asyncio.get_running_loop()
 
-    # ⬇️ Audio yuklab olish
+        def _get_title():
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 15,
+                "skip_download": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info:
+                    return info.get("track") or info.get("title") or ""
+            return ""
+
+        track_name = await loop.run_in_executor(None, _get_title)
+    except Exception:
+        track_name = ""
+
+    if not track_name:
+        await callback.message.reply("❌ Musiqa nomi aniqlanmadi.")
+        return
+
+    # YouTube dan qidirish
+    try:
+        def _search_youtube():
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 15,
+                "skip_download": True,
+                "default_search": "ytsearch5",
+                "extract_flat": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                results = ydl.extract_info(f"ytsearch5:{track_name}", download=False)
+                if results and "entries" in results:
+                    return results["entries"]
+            return []
+
+        entries = await loop.run_in_executor(None, _search_youtube)
+    except Exception:
+        entries = []
+
+    if not entries:
+        await callback.message.reply("❌ Musiqa topilmadi.")
+        return
+
+    # Natijalarni ko'rsatish
+    text = f"🎵 **{track_name}**\n\n"
+    search_results = []
+    for i, entry in enumerate(entries[:5], 1):
+        title = entry.get("title", "Noma'lum")
+        duration = entry.get("duration")
+        dur_str = ""
+        if duration:
+            minutes = int(duration) // 60
+            seconds = int(duration) % 60
+            dur_str = f" {minutes}:{seconds:02d}"
+        text += f"{i}. {title}{dur_str}\n"
+        search_results.append({
+            "url": entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+            "title": title
+        })
+
+    # Natijalarni xotiraga saqlash
+    pending_music[msg_id] = search_results
+
+    # Tugmalar yaratish
+    buttons = [
+        [InlineKeyboardButton("🎬 Video", callback_data=f"msvid|{msg_id}")],
+        [
+            InlineKeyboardButton("1", callback_data=f"ms|{msg_id}|0"),
+            InlineKeyboardButton("2", callback_data=f"ms|{msg_id}|1"),
+            InlineKeyboardButton("3", callback_data=f"ms|{msg_id}|2"),
+            InlineKeyboardButton("4", callback_data=f"ms|{msg_id}|3"),
+            InlineKeyboardButton("5", callback_data=f"ms|{msg_id}|4"),
+        ]
+    ]
+
+    await callback.message.reply(
+        text,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+# Musiqa qidiruv natijalari xotirasi
+pending_music = {}  # {msg_id: [{url, title}, ...]}
+
+
+@app.on_callback_query(filters.regex(r"^ms\|"))
+async def callback_music_select(client, callback: CallbackQuery):
+    """Musiqa raqami tanlanganda — yuklab yuborish"""
+    parts = callback.data.split("|")
+    msg_id = int(parts[1])
+    index = int(parts[2])
+
+    chat_id = callback.message.chat.id
+    results = pending_music.get(msg_id)
+
+    if not results or index >= len(results):
+        await callback.answer("⚠️ Natija topilmadi.", show_alert=True)
+        return
+
+    selected = results[index]
+    yt_url = selected["url"]
+
+    await callback.answer("🎵 Yuklanmoqda...", show_alert=False)
+
     status = await callback.message.reply("🎵 Musiqa yuklanmoqda...")
 
-    files, error = await download_audio(url, chat_id)
+    # YouTube dan audio yuklab olish
+    files, error = await download_audio(yt_url, chat_id)
 
     if error:
         await status.edit_text(error)
@@ -827,19 +925,65 @@ async def callback_audio(client, callback: CallbackQuery):
             if ext in [".mp3", ".m4a", ".ogg", ".wav"]:
                 sent = await callback.message.reply_audio(
                     str(filepath),
-                    caption="🎵 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                    caption=f"🎵 {selected['title']}\n@InstaDownloader_uzBot"
                 )
-                set_cache(url, "audio", {"type": "audio", "file_id": sent.audio.file_id})
             else:
                 sent = await callback.message.reply_document(
                     str(filepath),
-                    caption="🎵 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                    caption=f"🎵 {selected['title']}\n@InstaDownloader_uzBot"
                 )
 
         await status.delete()
 
     except Exception as e:
-        await status.edit_text(f"❌ Musiqa yuborishda xatolik: `{str(e)[:100]}`")
+        await status.edit_text(f"❌ Xatolik: `{str(e)[:100]}`")
+    finally:
+        cleanup(chat_id)
+
+
+@app.on_callback_query(filters.regex(r"^msvid\|"))
+async def callback_music_video(client, callback: CallbackQuery):
+    """Video tugmasi bosilganda — birinchi natijani video sifatida yuklab berish"""
+    msg_id = int(callback.data.split("|")[1])
+    chat_id = callback.message.chat.id
+    results = pending_music.get(msg_id)
+
+    if not results:
+        await callback.answer("⚠️ Natija topilmadi.", show_alert=True)
+        return
+
+    selected = results[0]
+    yt_url = selected["url"]
+
+    await callback.answer("🎬 Video yuklanmoqda...", show_alert=False)
+
+    status = await callback.message.reply("🎬 Video yuklanmoqda...")
+
+    files, error = await download_video(yt_url, chat_id)
+
+    if error:
+        await status.edit_text(error)
+        return
+
+    try:
+        for filepath in files:
+            ext = filepath.suffix.lower()
+            if ext in [".mp4", ".mov", ".mkv", ".webm"]:
+                await callback.message.reply_video(
+                    str(filepath),
+                    caption=f"🎬 {selected['title']}\n@InstaDownloader_uzBot",
+                    supports_streaming=True
+                )
+            else:
+                await callback.message.reply_document(
+                    str(filepath),
+                    caption=f"🎬 {selected['title']}\n@InstaDownloader_uzBot"
+                )
+
+        await status.delete()
+
+    except Exception as e:
+        await status.edit_text(f"❌ Xatolik: `{str(e)[:100]}`")
     finally:
         cleanup(chat_id)
 
