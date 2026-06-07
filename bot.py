@@ -813,8 +813,36 @@ async def callback_audio(client, callback: CallbackQuery):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 if info:
-                    return info.get("track") or info.get("title") or ""
-            return ""
+                    # Turli fieldlardan musiqa nomini izlaymiz
+                    track = info.get("track") or ""
+                    artist = info.get("artist") or info.get("creator") or ""
+                    title = info.get("title") or ""
+                    description = info.get("description") or ""
+
+                    # 1. track + artist
+                    if track:
+                        if artist:
+                            return f"{artist} — {track}"
+                        return track
+
+                    # 2. title (agar generic bo'lmasa)
+                    generic = ["instagram", "reel", "video", "post"]
+                    if title and not any(g in title.lower() for g in generic):
+                        return title
+
+                    # 3. description dan birinchi qatorni olish
+                    if description:
+                        first_line = description.split("\n")[0].strip()
+                        # Hashtag va mention larni olib tashlaymiz
+                        clean = re.sub(r'[#@]\S+', '', first_line).strip()
+                        if clean and len(clean) > 3:
+                            return clean[:80]
+
+                    # 4. title ni qaytaramiz (bo'sh bo'lmasa)
+                    if title:
+                        return title
+
+                return ""
 
         track_name = await loop.run_in_executor(None, _get_title)
     except Exception:
