@@ -964,7 +964,7 @@ pending_music = {}  # {msg_id: [{url, title}, ...]}
 
 @app.on_callback_query(filters.regex(r"^ms\|"))
 async def callback_music_select(client, callback: CallbackQuery):
-    """Musiqa raqami tanlanganda — yuklab yuborish"""
+    """Musiqa raqami tanlanganda — Instagram videodan audio ajratib yuborish"""
     parts = callback.data.split("|")
     msg_id = int(parts[1])
     index = int(parts[2])
@@ -977,19 +977,24 @@ async def callback_music_select(client, callback: CallbackQuery):
         return
 
     selected = results[index]
-    yt_url = selected.get("url") or f"https://www.youtube.com/watch?v={selected.get('id', '')}"
     title = selected["title"]
+
+    # Instagram URL ni olish
+    original_url = pending_urls.get(msg_id)
+    if not original_url:
+        await callback.answer("⚠️ Link eskirgan.", show_alert=True)
+        return
 
     await callback.answer("🎵 Yuklanmoqda...", show_alert=False)
 
     status = await callback.message.reply("🎵 Musiqa yuklanmoqda...")
 
-    # YouTube dan audio yuklab olish
+    # Instagram videodan audio ajratib olish
     try:
         loop = asyncio.get_running_loop()
-        output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
+        output_template = str(DOWNLOAD_DIR / f"{chat_id}_audio.%(ext)s")
 
-        def _download_yt_audio():
+        def _download_audio():
             ydl_opts = {
                 "outtmpl": output_template,
                 "format": "bestaudio/best",
@@ -1003,9 +1008,9 @@ async def callback_music_select(client, callback: CallbackQuery):
                 }],
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(yt_url, download=True)
+                ydl.extract_info(original_url, download=True)
 
-        await loop.run_in_executor(None, _download_yt_audio)
+        await loop.run_in_executor(None, _download_audio)
 
         files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
 
@@ -1016,13 +1021,13 @@ async def callback_music_select(client, callback: CallbackQuery):
         for filepath in files:
             ext = filepath.suffix.lower()
             if ext in [".mp3", ".m4a", ".ogg", ".wav"]:
-                sent = await callback.message.reply_audio(
+                await callback.message.reply_audio(
                     str(filepath),
                     caption=f"🎵 {title}\n@InstaDownloader_uzBot",
                     title=title
                 )
             else:
-                sent = await callback.message.reply_document(
+                await callback.message.reply_document(
                     str(filepath),
                     caption=f"🎵 {title}\n@InstaDownloader_uzBot"
                 )
@@ -1037,7 +1042,7 @@ async def callback_music_select(client, callback: CallbackQuery):
 
 @app.on_callback_query(filters.regex(r"^msvid\|"))
 async def callback_music_video(client, callback: CallbackQuery):
-    """Video tugmasi bosilganda — birinchi natijani video sifatida yuklab berish"""
+    """Video tugmasi — Instagram videodan audio ajratib berish (birinchi natija nomi bilan)"""
     msg_id = int(callback.data.split("|")[1])
     chat_id = callback.message.chat.id
     results = pending_music.get(msg_id)
@@ -1047,49 +1052,57 @@ async def callback_music_video(client, callback: CallbackQuery):
         return
 
     selected = results[0]
-    yt_url = selected.get("url") or f"https://www.youtube.com/watch?v={selected.get('id', '')}"
     title = selected["title"]
 
-    await callback.answer("🎬 Video yuklanmoqda...", show_alert=False)
+    original_url = pending_urls.get(msg_id)
+    if not original_url:
+        await callback.answer("⚠️ Link eskirgan.", show_alert=True)
+        return
 
-    status = await callback.message.reply("🎬 Video yuklanmoqda...")
+    await callback.answer("🎵 Yuklanmoqda...", show_alert=False)
+
+    status = await callback.message.reply("🎵 Musiqa yuklanmoqda...")
 
     try:
         loop = asyncio.get_running_loop()
-        output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
+        output_template = str(DOWNLOAD_DIR / f"{chat_id}_audio.%(ext)s")
 
-        def _download_yt_video():
+        def _download_audio():
             ydl_opts = {
                 "outtmpl": output_template,
-                "format": "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "merge_output_format": "mp4",
+                "format": "bestaudio/best",
                 "quiet": True,
                 "no_warnings": True,
                 "socket_timeout": 30,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "320",
+                }],
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(yt_url, download=True)
+                ydl.extract_info(original_url, download=True)
 
-        await loop.run_in_executor(None, _download_yt_video)
+        await loop.run_in_executor(None, _download_audio)
 
         files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
 
         if not files:
-            await status.edit_text("❌ Video yuklab bo'lmadi.")
+            await status.edit_text("❌ Musiqa yuklab bo'lmadi.")
             return
 
         for filepath in files:
             ext = filepath.suffix.lower()
-            if ext in [".mp4", ".mov", ".mkv", ".webm"]:
-                await callback.message.reply_video(
+            if ext in [".mp3", ".m4a", ".ogg", ".wav"]:
+                await callback.message.reply_audio(
                     str(filepath),
-                    caption=f"🎬 {title}\n@InstaDownloader_uzBot",
-                    supports_streaming=True
+                    caption=f"🎵 {title}\n@InstaDownloader_uzBot",
+                    title=title
                 )
             else:
                 await callback.message.reply_document(
                     str(filepath),
-                    caption=f"🎬 {title}\n@InstaDownloader_uzBot"
+                    caption=f"🎵 {title}\n@InstaDownloader_uzBot"
                 )
 
         await status.delete()
