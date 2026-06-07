@@ -394,7 +394,7 @@ async def handle_message(client, message: Message):
 
     # ❤️ Link xabariga like bosish
     try:
-        await message.react(emoji="❤️")
+        await client.send_reaction(message.chat.id, message.id, "❤")
     except Exception:
         pass
 
