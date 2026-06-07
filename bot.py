@@ -568,7 +568,8 @@ async def handle_message(client, message: Message):
                     caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
                     supports_streaming=True,
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
+                        [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
                     ])
                 )
             elif cached_video["type"] == "document":
@@ -576,7 +577,8 @@ async def handle_message(client, message: Message):
                     cached_video["file_id"],
                     caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
+                        [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
                     ])
                 )
             pending_urls[message.id] = url
@@ -727,7 +729,8 @@ async def handle_message(client, message: Message):
                             caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
                             supports_streaming=True,
                             reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
+                                [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
                             ])
                         )
                         set_cache(url, "video", {"type": "video", "file_id": sent.video.file_id})
@@ -736,7 +739,8 @@ async def handle_message(client, message: Message):
                             str(filepath),
                             caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
                             reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
+                                [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
                             ])
                         )
                         set_cache(url, "video", {"type": "document", "file_id": sent.document.file_id})
@@ -745,7 +749,8 @@ async def handle_message(client, message: Message):
                         str(filepath),
                         caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                            [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
+                            [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
                         ])
                     )
 
@@ -778,6 +783,65 @@ async def callback_favorite(client, callback: CallbackQuery):
         await callback.answer("⭐ Sevimlilarga qo'shildi!", show_alert=False)
     else:
         await callback.answer("⚠️ Link topilmadi.", show_alert=False)
+
+
+@app.on_callback_query(filters.regex(r"^audio\|"))
+async def callback_audio(client, callback: CallbackQuery):
+    """🎵 Musiqani yuklab olish tugmasi bosilganda"""
+    msg_id = int(callback.data.split("|")[1])
+    user_id = callback.from_user.id
+    chat_id = callback.message.chat.id
+    url = pending_urls.get(msg_id)
+
+    if not url:
+        await callback.answer("⚠️ Link eskirgan. Qayta yuboring.", show_alert=True)
+        return
+
+    # 💾 Cache tekshirish
+    cached = get_cache(url, "audio")
+    if cached:
+        try:
+            await callback.message.reply_audio(
+                cached["file_id"],
+                caption="🎵 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot"
+            )
+            await callback.answer("🎵 Musiqa yuborildi!", show_alert=False)
+            return
+        except Exception:
+            pass
+
+    await callback.answer("🎵 Musiqa yuklanmoqda...", show_alert=False)
+
+    # ⬇️ Audio yuklab olish
+    status = await callback.message.reply("🎵 Musiqa yuklanmoqda...")
+
+    files, error = await download_audio(url, chat_id)
+
+    if error:
+        await status.edit_text(error)
+        return
+
+    try:
+        for filepath in files:
+            ext = filepath.suffix.lower()
+            if ext in [".mp3", ".m4a", ".ogg", ".wav"]:
+                sent = await callback.message.reply_audio(
+                    str(filepath),
+                    caption="🎵 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                )
+                set_cache(url, "audio", {"type": "audio", "file_id": sent.audio.file_id})
+            else:
+                sent = await callback.message.reply_document(
+                    str(filepath),
+                    caption="🎵 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                )
+
+        await status.delete()
+
+    except Exception as e:
+        await status.edit_text(f"❌ Musiqa yuborishda xatolik: `{str(e)[:100]}`")
+    finally:
+        cleanup(chat_id)
 
 
 # ═══════════════════════════════════════════════════════════
