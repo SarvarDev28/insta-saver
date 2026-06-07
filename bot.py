@@ -272,6 +272,7 @@ async def download_photo(url: str, chat_id: int):
                 download_comments=False,
                 save_metadata=False,
                 compress_json=False,
+                post_metadata_txt_pattern="",
                 quiet=True,
                 dirname_pattern=str(DOWNLOAD_DIR),
                 filename_pattern=f"{chat_id}_{{shortcode}}"
@@ -316,8 +317,10 @@ async def download_photo(url: str, chat_id: int):
 
         result = await loop.run_in_executor(None, _download_with_instaloader)
 
-        # Fayllarni tekshirish
-        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
+        # Fayllarni tekshirish — faqat rasm fayllar
+        PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+        files = [f for f in DOWNLOAD_DIR.iterdir()
+                 if f.name.startswith(str(chat_id)) and f.suffix.lower() in PHOTO_EXTS]
         if files:
             return files, None
 
