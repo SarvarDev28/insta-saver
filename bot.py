@@ -392,12 +392,6 @@ async def handle_message(client, message: Message):
                 )
             return
 
-    # ❤️ Link xabariga like bosish
-    try:
-        await message.react(emoji="❤️")
-    except Exception:
-        pass
-
     # 📊 Inline tugmalar — Video yoki Audio tanlash
     sent = await message.reply(
         f"🔗 **Link topildi!**\n\n"
