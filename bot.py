@@ -16,7 +16,7 @@ from pyrogram.types import (
     InlineKeyboardButton,
     CallbackQuery,
 )
-from pyrogram.enums import ChatType, MessageReactionUpdated
+from pyrogram.enums import ChatType
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -427,21 +427,17 @@ async def handle_message(client, message: Message):
 
     # ❤️ Like reaction bosish
     try:
-        await app.send_reaction(message.chat.id, message.id, "❤")
-    except Exception:
-        try:
-            # Pyrogram eski versiyalari uchun alternativ
-            from pyrogram.raw.functions.messages import SendReaction
-            from pyrogram.raw.types import ReactionEmoji
-            await app.invoke(
-                SendReaction(
-                    peer=await app.resolve_peer(message.chat.id),
-                    msg_id=message.id,
-                    reaction=[ReactionEmoji(emoticon="❤")]
-                )
+        from pyrogram.raw.functions.messages import SendReaction
+        from pyrogram.raw.types import ReactionEmoji
+        await app.invoke(
+            SendReaction(
+                peer=await app.resolve_peer(message.chat.id),
+                msg_id=message.id,
+                reaction=[ReactionEmoji(emoticon="❤")]
             )
-        except Exception:
-            pass
+        )
+    except Exception:
+        pass
 
     # 📊 Progress boshlash — media turini aniqlash
     status = await message.reply(ProgressBar.get_stage_text(0))
