@@ -16,7 +16,7 @@ from pyrogram.types import (
     InlineKeyboardButton,
     CallbackQuery,
 )
-from pyrogram.enums import ChatType
+from pyrogram.enums import ChatType, MessageReactionUpdated
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ REDIS_URL = os.getenv("REDIS_URL")
 if not BOT_TOKEN or not API_ID or not API_HASH:
     raise ValueError("BOT_TOKEN, API_ID va API_HASH environment variable lar o'rnatilishi shart!")
 
-# Redis ulanishi (ixtiyoriy — REDIS_URL bo'lmasa statistika/cache ishlamaydi)
+# Redis ulanishi
 r = None
 if REDIS_URL:
     try:
@@ -38,7 +38,7 @@ if REDIS_URL:
         r.ping()
         logger.info("✅ Redis ga ulandi")
     except Exception as e:
-        logger.warning(f"⚠️ Redis ga ulanib bo'lmadi: {e}. Statistika/cache o'chirilgan.")
+        logger.warning(f"⚠️ Redis ga ulanib bo'lmadi: {e}")
         r = None
 
 app = Client("instabot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -86,14 +86,13 @@ def get_stats() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════
-# 💾 CACHE TIZIMI — bir xil link qayta yuborilsa tezkor javob
+# 💾 CACHE TIZIMI
 # ═══════════════════════════════════════════════════════════
 
 CACHE_TTL = 86400 * 7  # 7 kun
 
 
 def get_cache(url: str, mode: str):
-    """Cache dan file_id olish"""
     if not r:
         return None
     key = f"cache:{mode}:{url}"
@@ -104,7 +103,6 @@ def get_cache(url: str, mode: str):
 
 
 def set_cache(url: str, mode: str, file_data: dict):
-    """Cache ga file_id saqlash"""
     if not r:
         return
     key = f"cache:{mode}:{url}"
@@ -119,17 +117,18 @@ MAX_FAVORITES = 10
 
 
 def add_favorite(user_id: int, url: str):
-    """Sevimlilar ro'yxatiga qo'shish"""
     if not r:
         return
     key = f"favorites:{user_id}"
-    # Oxirgi 10 tani saqlash (LIFO)
+    # Dublikat qo'shmaslik
+    existing = r.lrange(key, 0, -1)
+    if url in existing:
+        return
     r.lpush(key, url)
     r.ltrim(key, 0, MAX_FAVORITES - 1)
 
 
 def get_favorites(user_id: int) -> list:
-    """Sevimlilar ro'yxatini olish"""
     if not r:
         return []
     key = f"favorites:{user_id}"
@@ -137,19 +136,13 @@ def get_favorites(user_id: int) -> list:
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔗 HAVOLA ANIQLAGICH — xabar ichidan Instagram linkni topish
+# 🔗 HAVOLA ANIQLAGICH
 # ═══════════════════════════════════════════════════════════
 
 def extract_instagram_url(text: str) -> str | None:
-    """Matn ichidan Instagram URL ni topib qaytaradi"""
     pattern = r'https?://(?:www\.)?(?:instagram\.com|instagr\.am)/(?:p|reel|reels|tv|stories)/[^\s\'"<>]+'
     match = re.search(pattern, text)
     return match.group(0) if match else None
-
-
-def is_instagram_url(url: str) -> bool:
-    pattern = r'(https?://)?(www\.)?(instagram\.com|instagr\.am)/(p|reel|reels|tv|stories)/[^\s]+'
-    return bool(re.match(pattern, url))
 
 
 # ═══════════════════════════════════════════════════════════
@@ -157,8 +150,6 @@ def is_instagram_url(url: str) -> bool:
 # ═══════════════════════════════════════════════════════════
 
 class ProgressBar:
-    """Zamonaviy animatsion progress bar"""
-
     STAGES = [
         ("🔍", "Link tekshirilmoqda...", 10),
         ("📡", "Instagram ga ulanilmoqda...", 25),
@@ -170,7 +161,6 @@ class ProgressBar:
 
     @staticmethod
     def render(percent: int) -> str:
-        """Progress bar chizish"""
         filled = int(percent / 10)
         empty = 10 - filled
         bar = "▓" * filled + "░" * empty
@@ -178,7 +168,6 @@ class ProgressBar:
 
     @staticmethod
     def get_stage_text(stage_index: int) -> str:
-        """Stage bo'yicha to'liq xabar"""
         if stage_index >= len(ProgressBar.STAGES):
             stage_index = len(ProgressBar.STAGES) - 1
         emoji, text, percent = ProgressBar.STAGES[stage_index]
@@ -187,7 +176,6 @@ class ProgressBar:
 
 
 async def update_progress(status_msg: Message, stage: int):
-    """Progress xabarini yangilash"""
     try:
         text = ProgressBar.get_stage_text(stage)
         await status_msg.edit_text(text)
@@ -199,10 +187,53 @@ async def update_progress(status_msg: Message, stage: int):
 # ⬇️ YUKLAB OLISH FUNKSIYALARI
 # ═══════════════════════════════════════════════════════════
 
-async def download_video(url: str, chat_id: int):
-    """Video yuklash (H.264 + AAC)"""
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
+async def detect_media_type(url: str) -> str:
+    """Link rasm mi yoki video: 'photo', 'video', 'unknown'"""
+    try:
+        loop = asyncio.get_running_loop()
 
+        def _extract():
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 15,
+                "skip_download": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(url, download=False)
+
+        info = await loop.run_in_executor(None, _extract)
+
+        if not info:
+            return "unknown"
+
+        # Carousel tekshirish
+        entries = info.get("entries")
+        if entries:
+            for entry in entries:
+                if entry and entry.get("ext") in ["mp4", "webm", "mov", "mkv"]:
+                    return "video"
+                if entry and entry.get("vcodec") and entry.get("vcodec") != "none":
+                    return "video"
+            return "photo"
+
+        # Yagona media
+        ext = info.get("ext", "")
+        vcodec = info.get("vcodec", "none")
+
+        if ext in ["jpg", "jpeg", "png", "webp"]:
+            return "photo"
+        elif ext in ["mp4", "webm", "mov", "mkv"] or (vcodec and vcodec != "none"):
+            return "video"
+        else:
+            return "unknown"
+
+    except Exception:
+        return "unknown"
+
+
+async def download_video(url: str, chat_id: int):
+    output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
         "format": "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc]/best[ext=mp4]/best",
@@ -218,14 +249,22 @@ async def download_video(url: str, chat_id: int):
             "FFmpegVideoConvertor": ["-c:v", "libx264", "-c:a", "aac", "-movflags", "+faststart"]
         },
     }
+    return await _execute_download(url, chat_id, ydl_opts)
 
+
+async def download_photo(url: str, chat_id: int):
+    output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
+    ydl_opts = {
+        "outtmpl": output_template,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+    }
     return await _execute_download(url, chat_id, ydl_opts)
 
 
 async def download_audio(url: str, chat_id: int):
-    """Faqat audio (MP3) yuklash"""
     output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
-
     ydl_opts = {
         "outtmpl": output_template,
         "format": "bestaudio/best",
@@ -238,12 +277,10 @@ async def download_audio(url: str, chat_id: int):
             "preferredquality": "320",
         }],
     }
-
     return await _execute_download(url, chat_id, ydl_opts)
 
 
 async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
-    """Umumiy yuklash mexanizmi"""
     try:
         loop = asyncio.get_running_loop()
 
@@ -311,11 +348,11 @@ async def cmd_help(client, message: Message):
         "1️⃣ Instagram da post/reel/story ni oching\n"
         "2️⃣ Havolasini nusxalang\n"
         "3️⃣ Menga yuboring\n"
-        "4️⃣ 🎬 Video yoki 🎵 Audio tanlang\n"
-        "5️⃣ Yuklanib keladi ✅\n\n"
+        "4️⃣ Yuklanib keladi ✅\n\n"
         "💡 **Qo'shimcha:**\n"
+        "• Rasm bo'lsa — avtomatik yuklab beradi\n"
+        "• Video bo'lsa — Video/Audio tanlash mumkin\n"
         "• Xabar ichida link bo'lsa ham topaman\n"
-        "• Bir xil link tez yuklanadi (cache)\n"
         "• /favorites — oxirgi yuklanishlar\n\n"
         "⚠️ **Ishlamaydi:**\n"
         "• Private akkaunt postlari\n"
@@ -337,12 +374,10 @@ async def cmd_favorites(client, message: Message):
 
     text = "⭐ **Oxirgi yuklanishlar:**\n\n"
     for i, url in enumerate(favs, 1):
-        # URL ni qisqartirish
-        short = url.split("?")[0]  # query params olib tashlash
+        short = url.split("?")[0]
         text += f"{i}. [{short[:50]}...]({url})\n"
 
     text += "\n💡 Havolani bosib qayta yuklashingiz mumkin."
-
     await message.reply(text, disable_web_page_preview=True)
 
 
@@ -361,24 +396,22 @@ async def cmd_stats(client, message: Message):
 
 
 # ═══════════════════════════════════════════════════════════
-# 📨 XABAR HANDLER — Havola aniqlagich bilan
+# 📨 ASOSIY XABAR HANDLER
 # ═══════════════════════════════════════════════════════════
 
 @app.on_message(filters.text & ~filters.command(["start", "help", "stats", "favorites"]))
 async def handle_message(client, message: Message):
     text = message.text.strip()
-
     is_group = message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]
 
-    # 🔗 Havola aniqlagich — matn ichidan Instagram linkni topish
+    # 🔗 Havola aniqlagich
     url = extract_instagram_url(text)
 
     if is_group:
         if not url:
-            return  # Guruhda faqat Instagram linkga javob berish
+            return
     else:
         if not url:
-            # Oddiy matn — link yo'q
             if not text.startswith("http"):
                 await message.reply(
                     "📎 Instagram havolasini yuboring.\n\n"
@@ -392,30 +425,115 @@ async def handle_message(client, message: Message):
                 )
             return
 
-    # ❤️ Link xabariga like bosish
+    # ❤️ Like reaction bosish
     try:
-        await client.send_reaction(message.chat.id, message.id, "❤")
+        await app.send_reaction(message.chat.id, message.id, "❤")
     except Exception:
-        pass
+        try:
+            # Pyrogram eski versiyalari uchun alternativ
+            from pyrogram.raw.functions.messages import SendReaction
+            from pyrogram.raw.types import ReactionEmoji
+            await app.invoke(
+                SendReaction(
+                    peer=await app.resolve_peer(message.chat.id),
+                    msg_id=message.id,
+                    reaction=[ReactionEmoji(emoticon="❤")]
+                )
+            )
+        except Exception:
+            pass
 
-    # 📊 Inline tugmalar — Video yoki Audio tanlash
-    sent = await message.reply(
-        f"🔗 **Link topildi!**\n\n"
-        f"Qanday formatda yuklayman?",
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🎬 Video", callback_data=f"video|{message.id}"),
-                InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"audio|{message.id}"),
-            ]
-        ])
-    )
-    # URL ni xotirada saqlash
-    pending_urls[message.id] = url
+    # 📊 Progress boshlash — media turini aniqlash
+    status = await message.reply(ProgressBar.get_stage_text(0))
+
+    await asyncio.sleep(0.3)
+    await update_progress(status, 1)
+
+    # 🔍 Media turini aniqlash
+    media_type = await detect_media_type(url)
+
+    if media_type == "photo":
+        # 🖼 RASM — to'g'ridan-to'g'ri yuklab yuborish
+        await update_progress(status, 2)
+
+        files, error = await download_photo(url, message.chat.id)
+
+        if error:
+            await status.edit_text(error)
+            return
+
+        await update_progress(status, 4)
+
+        try:
+            for filepath in files:
+                ext = filepath.suffix.lower()
+                if ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                    try:
+                        sent = await message.reply_photo(
+                            str(filepath),
+                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⭐ Saqlash", callback_data=f"fav|{message.id}")]
+                            ])
+                        )
+                        set_cache(url, "photo", {"type": "photo", "file_id": sent.photo.file_id})
+                    except Exception:
+                        sent = await message.reply_document(
+                            str(filepath),
+                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                        )
+                else:
+                    sent = await message.reply_document(
+                        str(filepath),
+                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                    )
+
+            # URL ni saqlash (fav tugma uchun)
+            pending_urls[message.id] = url
+
+            await update_progress(status, 5)
+            await asyncio.sleep(0.8)
+            await status.delete()
+
+        except Exception as e:
+            await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
+        finally:
+            cleanup(message.chat.id)
+
+    else:
+        # 🎬 VIDEO — tugmalar ko'rsatish
+        await status.edit_text(
+            "🔗 **Link topildi! (Video)**\n\n"
+            "Qanday formatda yuklayman?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⭐ Saqlash", callback_data=f"fav|{message.id}")],
+                [
+                    InlineKeyboardButton("🎬 Video", callback_data=f"video|{message.id}"),
+                    InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"audio|{message.id}"),
+                ]
+            ])
+        )
+        # URL ni xotirada saqlash
+        pending_urls[message.id] = url
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔘 CALLBACK HANDLER — Inline tugma bosilganda
+# 🔘 CALLBACK HANDLER — Tugma bosilganda
 # ═══════════════════════════════════════════════════════════
+
+@app.on_callback_query(filters.regex(r"^fav\|"))
+async def callback_favorite(client, callback: CallbackQuery):
+    """⭐ Saqlash tugmasi bosilganda"""
+    msg_id = int(callback.data.split("|")[1])
+    user_id = callback.from_user.id
+    url = pending_urls.get(msg_id)
+
+    if url:
+        add_favorite(user_id, url)
+        await callback.answer("⭐ Sevimlilar ga qo'shildi!", show_alert=False)
+    else:
+        await callback.answer("⚠️ Link topilmadi.", show_alert=False)
+
 
 @app.on_callback_query(filters.regex(r"^(video|audio)\|"))
 async def callback_download(client, callback: CallbackQuery):
@@ -425,14 +543,14 @@ async def callback_download(client, callback: CallbackQuery):
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
 
-    # URL ni xotiradan olish
-    url = pending_urls.pop(msg_id, None)
+    # URL ni xotiradan olish (olib tashlamasdan — fav uchun kerak)
+    url = pending_urls.get(msg_id)
     if not url:
         await callback.answer("⚠️ Link eskirgan. Qayta yuboring.", show_alert=True)
         await callback.message.delete()
         return
 
-    # Tugmani o'chirish
+    # Tugmalarni o'chirish
     await callback.message.edit_reply_markup(None)
 
     # 💾 Cache tekshirish
@@ -450,11 +568,6 @@ async def callback_download(client, callback: CallbackQuery):
                     cached["file_id"],
                     caption="🎵 Instagram dan yuklandi ⚡ (cache)\n@InstaDownloader_uzBot"
                 )
-            elif cached["type"] == "photo":
-                await callback.message.reply_photo(
-                    cached["file_id"],
-                    caption="📥 Instagram dan yuklandi ⚡ (cache)\n@InstaDownloader_uzBot"
-                )
             elif cached["type"] == "document":
                 await callback.message.reply_document(
                     cached["file_id"],
@@ -465,16 +578,10 @@ async def callback_download(client, callback: CallbackQuery):
             add_favorite(user_id, url)
             return
         except Exception:
-            pass  # Cache eskirgan bo'lsa, qaytadan yuklaymiz
+            pass
 
-    # 📊 Progress bar boshlash
-    status = await callback.message.edit_text(ProgressBar.get_stage_text(0))
-
-    await asyncio.sleep(0.5)
-    await update_progress(status, 1)
-
-    await asyncio.sleep(0.3)
-    await update_progress(status, 2)
+    # 📊 Progress bar
+    status = await callback.message.edit_text(ProgressBar.get_stage_text(2))
 
     # ⬇️ Yuklab olish
     if mode == "video":
@@ -515,20 +622,6 @@ async def callback_download(client, callback: CallbackQuery):
                         caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
                     )
                     set_cache(url, mode, {"type": "document", "file_id": sent.document.file_id})
-
-            elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
-                try:
-                    sent = await callback.message.reply_photo(
-                        str(filepath),
-                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                    )
-                    set_cache(url, mode, {"type": "photo", "file_id": sent.photo.file_id})
-                except Exception:
-                    sent = await callback.message.reply_document(
-                        str(filepath),
-                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                    )
-                    set_cache(url, mode, {"type": "document", "file_id": sent.document.file_id})
             else:
                 sent = await callback.message.reply_document(
                     str(filepath),
@@ -539,9 +632,8 @@ async def callback_download(client, callback: CallbackQuery):
         # ⭐ Sevimlilar ga qo'shish
         add_favorite(user_id, url)
 
-        # ✅ Progress yakunlash
         await update_progress(status, 5)
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.8)
         await status.delete()
 
     except Exception as e:
