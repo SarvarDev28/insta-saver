@@ -423,7 +423,10 @@ async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
         if "private" in err:
             return None, "❌ Bu akkaunt yoki post xususiy (private)."
         elif "login" in err or "sign in" in err or "cookie" in err:
-            return None, "❌ Instagram login talab qilmoqda. Admin bilan bog'laning."
+            if "instagram" in err:
+                return None, "❌ Instagram login talab qilmoqda. Admin bilan bog'laning."
+            else:
+                return None, f"❌ Yuklab bo'lmadi.\n`{str(e)[:120]}`"
         elif "not available" in err or "removed" in err:
             return None, "❌ Bu post mavjud emas yoki o'chirilgan."
         else:
@@ -860,8 +863,6 @@ async def callback_audio(client, callback: CallbackQuery):
                 "no_warnings": True,
                 "socket_timeout": 15,
                 "skip_download": True,
-                "default_search": "ytsearch5",
-                "extract_flat": True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 results = ydl.extract_info(f"ytsearch5:{track_name}", download=False)
@@ -890,7 +891,7 @@ async def callback_audio(client, callback: CallbackQuery):
             dur_str = f" {minutes}:{seconds:02d}"
         text += f"{i}. {title}{dur_str}\n"
         search_results.append({
-            "url": entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+            "url": entry.get("webpage_url") or entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}",
             "title": title
         })
 
@@ -935,30 +936,53 @@ async def callback_music_select(client, callback: CallbackQuery):
 
     selected = results[index]
     yt_url = selected["url"]
+    title = selected["title"]
 
     await callback.answer("🎵 Yuklanmoqda...", show_alert=False)
 
     status = await callback.message.reply("🎵 Musiqa yuklanmoqda...")
 
     # YouTube dan audio yuklab olish
-    files, error = await download_audio(yt_url, chat_id)
-
-    if error:
-        await status.edit_text(error)
-        return
-
     try:
+        loop = asyncio.get_running_loop()
+        output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
+
+        def _download_yt_audio():
+            ydl_opts = {
+                "outtmpl": output_template,
+                "format": "bestaudio/best",
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 30,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "320",
+                }],
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(yt_url, download=True)
+
+        await loop.run_in_executor(None, _download_yt_audio)
+
+        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
+
+        if not files:
+            await status.edit_text("❌ Musiqa yuklab bo'lmadi.")
+            return
+
         for filepath in files:
             ext = filepath.suffix.lower()
             if ext in [".mp3", ".m4a", ".ogg", ".wav"]:
                 sent = await callback.message.reply_audio(
                     str(filepath),
-                    caption=f"🎵 {selected['title']}\n@InstaDownloader_uzBot"
+                    caption=f"🎵 {title}\n@InstaDownloader_uzBot",
+                    title=title
                 )
             else:
                 sent = await callback.message.reply_document(
                     str(filepath),
-                    caption=f"🎵 {selected['title']}\n@InstaDownloader_uzBot"
+                    caption=f"🎵 {title}\n@InstaDownloader_uzBot"
                 )
 
         await status.delete()
@@ -982,30 +1006,48 @@ async def callback_music_video(client, callback: CallbackQuery):
 
     selected = results[0]
     yt_url = selected["url"]
+    title = selected["title"]
 
     await callback.answer("🎬 Video yuklanmoqda...", show_alert=False)
 
     status = await callback.message.reply("🎬 Video yuklanmoqda...")
 
-    files, error = await download_video(yt_url, chat_id)
-
-    if error:
-        await status.edit_text(error)
-        return
-
     try:
+        loop = asyncio.get_running_loop()
+        output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
+
+        def _download_yt_video():
+            ydl_opts = {
+                "outtmpl": output_template,
+                "format": "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "merge_output_format": "mp4",
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 30,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(yt_url, download=True)
+
+        await loop.run_in_executor(None, _download_yt_video)
+
+        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
+
+        if not files:
+            await status.edit_text("❌ Video yuklab bo'lmadi.")
+            return
+
         for filepath in files:
             ext = filepath.suffix.lower()
             if ext in [".mp4", ".mov", ".mkv", ".webm"]:
                 await callback.message.reply_video(
                     str(filepath),
-                    caption=f"🎬 {selected['title']}\n@InstaDownloader_uzBot",
+                    caption=f"🎬 {title}\n@InstaDownloader_uzBot",
                     supports_streaming=True
                 )
             else:
                 await callback.message.reply_document(
                     str(filepath),
-                    caption=f"🎬 {selected['title']}\n@InstaDownloader_uzBot"
+                    caption=f"🎬 {title}\n@InstaDownloader_uzBot"
                 )
 
         await status.delete()
