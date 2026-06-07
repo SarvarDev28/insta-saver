@@ -464,7 +464,7 @@ async def handle_message(client, message: Message):
                             str(filepath),
                             caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
                             reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⭐ Saqlash", callback_data=f"fav|{message.id}")]
+                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
                             ])
                         )
                         set_cache(url, "photo", {"type": "photo", "file_id": sent.photo.file_id})
@@ -492,20 +492,63 @@ async def handle_message(client, message: Message):
             cleanup(message.chat.id)
 
     else:
-        # 🎬 VIDEO — tugmalar ko'rsatish
-        await status.edit_text(
-            "🔗 **Link topildi! (Video)**\n\n"
-            "Qanday formatda yuklayman?",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⭐ Saqlash", callback_data=f"fav|{message.id}")],
-                [
-                    InlineKeyboardButton("🎬 Video", callback_data=f"video|{message.id}"),
-                    InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"audio|{message.id}"),
-                ]
-            ])
-        )
-        # URL ni xotirada saqlash
-        pending_urls[message.id] = url
+        # 🎬 VIDEO — so'rovsiz to'g'ridan-to'g'ri yuklab yuborish
+        await update_progress(status, 2)
+
+        files, error = await download_video(url, message.chat.id)
+
+        if error:
+            await status.edit_text(error)
+            return
+
+        await update_progress(status, 3)
+        await asyncio.sleep(0.3)
+        await update_progress(status, 4)
+
+        try:
+            for filepath in files:
+                ext = filepath.suffix.lower()
+
+                if ext in [".mp4", ".mov", ".mkv", ".webm"]:
+                    try:
+                        sent = await message.reply_video(
+                            str(filepath),
+                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
+                            supports_streaming=True,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                            ])
+                        )
+                        set_cache(url, "video", {"type": "video", "file_id": sent.video.file_id})
+                    except Exception:
+                        sent = await message.reply_document(
+                            str(filepath),
+                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                            ])
+                        )
+                        set_cache(url, "video", {"type": "document", "file_id": sent.document.file_id})
+                else:
+                    sent = await message.reply_document(
+                        str(filepath),
+                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                        ])
+                    )
+
+            # URL ni saqlash (fav tugma uchun)
+            pending_urls[message.id] = url
+
+            await update_progress(status, 5)
+            await asyncio.sleep(0.8)
+            await status.delete()
+
+        except Exception as e:
+            await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
+        finally:
+            cleanup(message.chat.id)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -514,123 +557,16 @@ async def handle_message(client, message: Message):
 
 @app.on_callback_query(filters.regex(r"^fav\|"))
 async def callback_favorite(client, callback: CallbackQuery):
-    """⭐ Saqlash tugmasi bosilganda"""
+    """⭐ Sevimlilarga qo'shish tugmasi bosilganda"""
     msg_id = int(callback.data.split("|")[1])
     user_id = callback.from_user.id
     url = pending_urls.get(msg_id)
 
     if url:
         add_favorite(user_id, url)
-        await callback.answer("⭐ Sevimlilar ga qo'shildi!", show_alert=False)
+        await callback.answer("⭐ Sevimlilarga qo'shildi!", show_alert=False)
     else:
         await callback.answer("⚠️ Link topilmadi.", show_alert=False)
-
-
-@app.on_callback_query(filters.regex(r"^(video|audio)\|"))
-async def callback_download(client, callback: CallbackQuery):
-    data = callback.data
-    mode, msg_id_str = data.split("|", 1)
-    msg_id = int(msg_id_str)
-    user_id = callback.from_user.id
-    chat_id = callback.message.chat.id
-
-    # URL ni xotiradan olish (olib tashlamasdan — fav uchun kerak)
-    url = pending_urls.get(msg_id)
-    if not url:
-        await callback.answer("⚠️ Link eskirgan. Qayta yuboring.", show_alert=True)
-        await callback.message.delete()
-        return
-
-    # Tugmalarni o'chirish
-    await callback.message.edit_reply_markup(None)
-
-    # 💾 Cache tekshirish
-    cached = get_cache(url, mode)
-    if cached:
-        try:
-            if cached["type"] == "video":
-                await callback.message.reply_video(
-                    cached["file_id"],
-                    caption="📥 Instagram dan yuklandi ⚡ (cache)\n@InstaDownloader_uzBot",
-                    supports_streaming=True
-                )
-            elif cached["type"] == "audio":
-                await callback.message.reply_audio(
-                    cached["file_id"],
-                    caption="🎵 Instagram dan yuklandi ⚡ (cache)\n@InstaDownloader_uzBot"
-                )
-            elif cached["type"] == "document":
-                await callback.message.reply_document(
-                    cached["file_id"],
-                    caption="📥 Instagram dan yuklandi ⚡ (cache)\n@InstaDownloader_uzBot"
-                )
-
-            await callback.message.delete()
-            add_favorite(user_id, url)
-            return
-        except Exception:
-            pass
-
-    # 📊 Progress bar
-    status = await callback.message.edit_text(ProgressBar.get_stage_text(2))
-
-    # ⬇️ Yuklab olish
-    if mode == "video":
-        files, error = await download_video(url, chat_id)
-    else:
-        files, error = await download_audio(url, chat_id)
-
-    if error:
-        await status.edit_text(error)
-        return
-
-    await update_progress(status, 3)
-    await asyncio.sleep(0.3)
-    await update_progress(status, 4)
-
-    try:
-        for filepath in files:
-            ext = filepath.suffix.lower()
-
-            if mode == "audio" or ext in [".mp3", ".m4a", ".ogg", ".wav"]:
-                sent = await callback.message.reply_audio(
-                    str(filepath),
-                    caption="🎵 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                )
-                set_cache(url, mode, {"type": "audio", "file_id": sent.audio.file_id})
-
-            elif ext in [".mp4", ".mov", ".mkv", ".webm"]:
-                try:
-                    sent = await callback.message.reply_video(
-                        str(filepath),
-                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
-                        supports_streaming=True
-                    )
-                    set_cache(url, mode, {"type": "video", "file_id": sent.video.file_id})
-                except Exception:
-                    sent = await callback.message.reply_document(
-                        str(filepath),
-                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                    )
-                    set_cache(url, mode, {"type": "document", "file_id": sent.document.file_id})
-            else:
-                sent = await callback.message.reply_document(
-                    str(filepath),
-                    caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                )
-                set_cache(url, mode, {"type": "document", "file_id": sent.document.file_id})
-
-        # ⭐ Sevimlilar ga qo'shish
-        add_favorite(user_id, url)
-
-        await update_progress(status, 5)
-        await asyncio.sleep(0.8)
-        await status.delete()
-
-    except Exception as e:
-        await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
-    finally:
-        cleanup(chat_id)
 
 
 # ═══════════════════════════════════════════════════════════
