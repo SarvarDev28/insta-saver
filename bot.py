@@ -492,10 +492,56 @@ async def handle_message(client, message: Message):
             cleanup(message.chat.id)
 
     else:
-        # 🎬 VIDEO — so'rovsiz to'g'ridan-to'g'ri yuklab yuborish
+        # 🎬 VIDEO yoki UNKNOWN — avval video, xato bo'lsa rasm sifatida yuklab ko'rish
         await update_progress(status, 2)
 
         files, error = await download_video(url, message.chat.id)
+
+        # Agar video yuklab bo'lmasa — rasm sifatida urinib ko'ramiz
+        if error and ("no video" in str(error).lower() or "not a video" in str(error).lower()):
+            cleanup(message.chat.id)
+            files, error = await download_photo(url, message.chat.id)
+
+            if error:
+                await status.edit_text(error)
+                return
+
+            await update_progress(status, 4)
+
+            try:
+                for filepath in files:
+                    ext = filepath.suffix.lower()
+                    if ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                        try:
+                            sent = await message.reply_photo(
+                                str(filepath),
+                                caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                                ])
+                            )
+                            set_cache(url, "photo", {"type": "photo", "file_id": sent.photo.file_id})
+                        except Exception:
+                            sent = await message.reply_document(
+                                str(filepath),
+                                caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                            )
+                    else:
+                        sent = await message.reply_document(
+                            str(filepath),
+                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                        )
+
+                pending_urls[message.id] = url
+                await update_progress(status, 5)
+                await asyncio.sleep(0.8)
+                await status.delete()
+
+            except Exception as e:
+                await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
+            finally:
+                cleanup(message.chat.id)
+            return
 
         if error:
             await status.edit_text(error)
