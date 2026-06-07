@@ -552,10 +552,52 @@ async def handle_message(client, message: Message):
     try:
         await app.send_reaction(message.chat.id, message.id, "❤")
     except AttributeError:
-        # Pyrogram versiyasida send_reaction mavjud emas
         pass
     except Exception:
         pass
+
+    # 💾 CACHE TEKSHIRISH — avval yuklangan bo'lsa darhol yuborish
+    cached_video = get_cache(url, "video")
+    cached_photo = get_cache(url, "photo")
+
+    if cached_video:
+        try:
+            if cached_video["type"] == "video":
+                await message.reply_video(
+                    cached_video["file_id"],
+                    caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
+                    supports_streaming=True,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                    ])
+                )
+            elif cached_video["type"] == "document":
+                await message.reply_document(
+                    cached_video["file_id"],
+                    caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                    ])
+                )
+            pending_urls[message.id] = url
+            return
+        except Exception:
+            pass
+
+    if cached_photo:
+        try:
+            if cached_photo["type"] == "photo":
+                await message.reply_photo(
+                    cached_photo["file_id"],
+                    caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                    ])
+                )
+            pending_urls[message.id] = url
+            return
+        except Exception:
+            pass
 
     # 📊 Progress boshlash — media turini aniqlash
     status = await message.reply(ProgressBar.get_stage_text(0))
