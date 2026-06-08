@@ -770,7 +770,7 @@ async def handle_message(client, message: Message):
     # 📊 Zamonaviy progress bar
     async def show_progress(status_msg, stage):
         stages = [
-            ("🔗", "Link tekshirilmoqda", 10),
+            ("🔍", "Link tekshirilmoqda", 10),
             ("📡", "Instagram ga ulanilmoqda", 25),
             ("⬇️", "Yuklab olinmoqda", 50),
             ("🔄", "Qayta ishlanmoqda", 75),
@@ -780,23 +780,25 @@ async def handle_message(client, message: Message):
         if stage >= len(stages):
             stage = len(stages) - 1
         emoji, text_stage, percent = stages[stage]
-        filled = percent // 5
-        empty = 20 - filled
-        bar = "█" * filled + "░" * empty
+        filled = int(percent / 10)
+        empty = 10 - filled
+        bar = "▰" * filled + "▱" * empty
         elapsed = round(_time.time() - start_time, 1)
         progress_text = (
-            f"{emoji} **{text_stage}...**\n\n"
-            f"┌{'─' * 22}┐\n"
-            f"│ {bar} │\n"
-            f"└{'─' * 22}┘\n"
-            f"📊 `{percent}%` ⏱ `{elapsed}s`"
+            f"{emoji} **{text_stage}**\n\n"
+            f"{bar}  **{percent}%**\n\n"
+            f"⏱ {elapsed} soniya"
         )
         try:
             await status_msg.edit_text(progress_text)
         except Exception:
             pass
 
-    status = await message.reply("🔗 **Link tekshirilmoqda...**\n\n┌──────────────────────┐\n│ ██░░░░░░░░░░░░░░░░░░ │\n└──────────────────────┘\n📊 `10%` ⏱ `0.0s`")
+    status = await message.reply(
+        "🔍 **Link tekshirilmoqda**\n\n"
+        "▰▱▱▱▱▱▱▱▱▱  **10%**\n\n"
+        "⏱ 0.0 soniya"
+    )
 
     await asyncio.sleep(0.3)
     await show_progress(status, 1)
