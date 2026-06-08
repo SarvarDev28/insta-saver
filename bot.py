@@ -767,10 +767,43 @@ async def handle_message(client, message: Message):
     # Vaqtni boshlash (tezlik uchun)
     start_time = _time.time()
 
-    # Status xabar
-    status = await message.reply(t(uid, "downloading"))
+    # 📊 Zamonaviy progress bar
+    async def show_progress(status_msg, stage):
+        stages = [
+            ("🔗", "Link tekshirilmoqda", 10),
+            ("📡", "Instagram ga ulanilmoqda", 25),
+            ("⬇️", "Yuklab olinmoqda", 50),
+            ("🔄", "Qayta ishlanmoqda", 75),
+            ("📤", "Telegramga yuborilmoqda", 90),
+            ("✅", "Tayyor!", 100),
+        ]
+        if stage >= len(stages):
+            stage = len(stages) - 1
+        emoji, text_stage, percent = stages[stage]
+        filled = percent // 5
+        empty = 20 - filled
+        bar = "█" * filled + "░" * empty
+        elapsed = round(_time.time() - start_time, 1)
+        progress_text = (
+            f"{emoji} **{text_stage}...**\n\n"
+            f"┌{'─' * 22}┐\n"
+            f"│ {bar} │\n"
+            f"└{'─' * 22}┘\n"
+            f"📊 `{percent}%` ⏱ `{elapsed}s`"
+        )
+        try:
+            await status_msg.edit_text(progress_text)
+        except Exception:
+            pass
+
+    status = await message.reply("🔗 **Link tekshirilmoqda...**\n\n┌──────────────────────┐\n│ ██░░░░░░░░░░░░░░░░░░ │\n└──────────────────────┘\n📊 `10%` ⏱ `0.0s`")
+
+    await asyncio.sleep(0.3)
+    await show_progress(status, 1)
 
     # VIDEO yuklab olish
+    await asyncio.sleep(0.2)
+    await show_progress(status, 2)
     files, error = await download_video(url, message.chat.id)
 
     # Agar video bo'lmasa — rasm sifatida urinib ko'ramiz (faqat Instagram)
@@ -778,6 +811,7 @@ async def handle_message(client, message: Message):
         err_str = str(error).lower()
         if "no video" in err_str or "not a video" in err_str or "there is no video" in err_str or error == "not_found":
             cleanup(message.chat.id)
+            await show_progress(status, 2)
             files, error = await download_photo(url, message.chat.id)
 
             if error:
@@ -791,6 +825,7 @@ async def handle_message(client, message: Message):
             # Tezlik hisoblash
             elapsed = round(_time.time() - start_time, 1)
             caption = t(uid, "caption_speed", platform=platform, seconds=elapsed)
+            await show_progress(status, 4)
 
             try:
                 for filepath in files:
@@ -840,6 +875,9 @@ async def handle_message(client, message: Message):
         return
 
     # Tezlik hisoblash
+    await show_progress(status, 3)
+    await asyncio.sleep(0.2)
+    await show_progress(status, 4)
     elapsed = round(_time.time() - start_time, 1)
     caption = t(uid, "caption_speed", platform=platform, seconds=elapsed)
 
