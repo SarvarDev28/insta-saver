@@ -627,7 +627,13 @@ async def cmd_favorites(client, message: Message):
         short = url.split("?")[0]
         text += f"{i}. {short}\n"
 
-    await message.reply(text, disable_web_page_preview=True)
+    await message.reply(
+        text,
+        disable_web_page_preview=True,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🗑 Tozalash / Reset", callback_data="favreset")]
+        ])
+    )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -918,6 +924,15 @@ async def callback_favorite(client, callback: CallbackQuery):
         await callback.answer("⭐", show_alert=False)
     else:
         await callback.answer("⚠️", show_alert=False)
+
+
+@app.on_callback_query(filters.regex(r"^favreset$"))
+async def callback_fav_reset(client, callback: CallbackQuery):
+    """Sevimlilar ro'yxatini tozalash"""
+    uid = callback.from_user.id
+    if r:
+        r.delete(f"favorites:{uid}")
+    await callback.message.edit_text("✅ Sevimlilar ro'yxati tozalandi.")
 
 
 @app.on_callback_query(filters.regex(r"^audio\|"))
