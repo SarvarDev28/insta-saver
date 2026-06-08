@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import threading
+import time as _time
 import redis
 import yt_dlp
 from pathlib import Path
@@ -15,8 +16,11 @@ from pyrogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     CallbackQuery,
+    InlineQuery,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
 )
-from pyrogram.enums import ChatType
+from pyrogram.enums import ChatType, ChatMemberStatus
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,6 +30,7 @@ API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 REDIS_URL = os.getenv("REDIS_URL")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "")  # Kanal username: @channel_name yoki ID
 
 if not BOT_TOKEN or not API_ID or not API_HASH:
     raise ValueError("BOT_TOKEN, API_ID va API_HASH environment variable lar o'rnatilishi shart!")
@@ -64,6 +69,230 @@ def run_flask():
 
 
 # ═══════════════════════════════════════════════════════════
+# 🌐 KO'P TILLI TIZIM (i18n)
+# ═══════════════════════════════════════════════════════════
+
+TEXTS = {
+    "uz": {
+        "start": (
+            "👋 Salom, **{name}**!\n\n"
+            "📥 Men **Instagram & TikTok Saver** botman.\n\n"
+            "📌 Nima yuklay olaman:\n"
+            "• 🎬 Instagram Reels (video/audio)\n"
+            "• 🖼 Instagram Postlar (rasm/video)\n"
+            "• 📖 Instagram Stories\n"
+            "• 🎵 TikTok videolar\n\n"
+            "🎯 **Buyruqlar:**\n"
+            "• /favorites — Sevimlilar\n"
+            "• /help — Qo'llanma\n"
+            "• /lang — Tilni o'zgartirish\n\n"
+            "➡️ Instagram yoki TikTok havolasini yuboring!"
+        ),
+        "help": (
+            "📖 **Qo'llanma:**\n\n"
+            "1️⃣ Instagram/TikTok da post/reel ni oching\n"
+            "2️⃣ Havolasini nusxalang\n"
+            "3️⃣ Menga yuboring\n"
+            "4️⃣ Yuklanib keladi ✅\n\n"
+            "💡 **Qo'shimcha:**\n"
+            "• Rasm bo'lsa — avtomatik yuklab beradi\n"
+            "• Video bo'lsa — Video/Audio tanlash mumkin\n"
+            "• Carousel — barcha rasmlar yuklanadi\n"
+            "• /favorites — sevimlilar ro'yxati\n"
+            "• /lang — tilni o'zgartirish\n\n"
+            "⚠️ **Ishlamaydi:**\n"
+            "• Private akkaunt postlari\n"
+            "• O'chirilgan postlar\n\n"
+            "📩 **Talab va takliflar:** @theSarvar_04"
+        ),
+        "lang_choose": "🌐 **Tilni tanlang / Choose language / Выберите язык:**",
+        "lang_set": "✅ Til o'zgartirildi: **O'zbekcha** 🇺🇿",
+        "send_link": "📎 Instagram yoki TikTok havolasini yuboring.",
+        "only_insta_tiktok": "⚠️ Faqat **Instagram** va **TikTok** havolalarini qabul qilaman.",
+        "favorites_empty": "⭐ **Sevimlilar ro'yxati bo'sh.**\n\nHavola yuboring va \"⭐\" tugmasini bosing!",
+        "favorites_title": "⭐ **Sevimlilar:**\n\n",
+        "downloading": "⬇️ Yuklab olinmoqda...",
+        "downloaded": "📥 Yuklandi",
+        "download_error": "❌ Yuklab bo'lmadi.",
+        "private_error": "❌ Bu post xususiy (private).",
+        "login_error": "❌ Login talab qilmoqda.",
+        "not_found_error": "❌ Post mavjud emas yoki o'chirilgan.",
+        "audio_extracting": "🎵 Audio ajratilmoqda...",
+        "audio_done": "🎵 Yuklandi",
+        "subscribe_channel": "❗ Botdan foydalanish uchun kanalga obuna bo'ling:\n\n👉 {channel}\n\n✅ Obuna bo'lgach, qayta yuboring.",
+        "speed_text": "⚡ {seconds} soniyada yuklandi",
+        "stats_text": (
+            "📊 **Bot statistikasi:**\n\n"
+            "👥 Jami: **{total}** ta\n"
+            "📅 Bugun: **{today}** ta\n"
+            "🚫 Bloklangan: **{banned}** ta"
+        ),
+        "broadcast_start": "📢 Broadcast boshlandi...",
+        "broadcast_done": "✅ Broadcast tugadi.\n\n📨 Yuborildi: **{sent}**\n❌ Xato: **{failed}**",
+        "user_banned": "🚫 Foydalanuvchi bloklandi: `{uid}`",
+        "user_unbanned": "✅ Foydalanuvchi blokdan chiqarildi: `{uid}`",
+        "banned_msg": "⛔ Siz bloklangansiz. Admin: @theSarvar_04",
+        "admin_only": "⛔ Bu buyruq faqat admin uchun.",
+        "btn_favorite": "⭐ Sevimlilarga",
+        "btn_audio": "🎵 Audio yuklab olish",
+        "caption": "📥 {platform} dan yuklandi\n@InstaDownloader_uzBot",
+        "caption_speed": "📥 {platform} dan yuklandi | ⚡ {seconds}s\n@InstaDownloader_uzBot",
+    },
+    "en": {
+        "start": (
+            "👋 Hello, **{name}**!\n\n"
+            "📥 I'm an **Instagram & TikTok Saver** bot.\n\n"
+            "📌 What I can download:\n"
+            "• 🎬 Instagram Reels (video/audio)\n"
+            "• 🖼 Instagram Posts (photo/video)\n"
+            "• 📖 Instagram Stories\n"
+            "• 🎵 TikTok videos\n\n"
+            "🎯 **Commands:**\n"
+            "• /favorites — Favorites\n"
+            "• /help — Guide\n"
+            "• /lang — Change language\n\n"
+            "➡️ Send an Instagram or TikTok link!"
+        ),
+        "help": (
+            "📖 **Guide:**\n\n"
+            "1️⃣ Open a post/reel on Instagram/TikTok\n"
+            "2️⃣ Copy the link\n"
+            "3️⃣ Send it to me\n"
+            "4️⃣ Download will be ready ✅\n\n"
+            "💡 **Extra:**\n"
+            "• Photos — auto downloaded\n"
+            "• Videos — Video/Audio options\n"
+            "• Carousel — all images downloaded\n"
+            "• /favorites — favorites list\n"
+            "• /lang — change language\n\n"
+            "⚠️ **Doesn't work:**\n"
+            "• Private account posts\n"
+            "• Deleted posts\n\n"
+            "📩 **Feedback:** @theSarvar_04"
+        ),
+        "lang_choose": "🌐 **Tilni tanlang / Choose language / Выберите язык:**",
+        "lang_set": "✅ Language changed: **English** 🇬🇧",
+        "send_link": "📎 Send an Instagram or TikTok link.",
+        "only_insta_tiktok": "⚠️ I only accept **Instagram** and **TikTok** links.",
+        "favorites_empty": "⭐ **Favorites list is empty.**\n\nSend a link and tap the \"⭐\" button!",
+        "favorites_title": "⭐ **Favorites:**\n\n",
+        "downloading": "⬇️ Downloading...",
+        "downloaded": "📥 Downloaded",
+        "download_error": "❌ Download failed.",
+        "private_error": "❌ This post is private.",
+        "login_error": "❌ Login required.",
+        "not_found_error": "❌ Post not found or deleted.",
+        "audio_extracting": "🎵 Extracting audio...",
+        "audio_done": "🎵 Downloaded",
+        "subscribe_channel": "❗ Subscribe to the channel to use the bot:\n\n👉 {channel}\n\n✅ After subscribing, send again.",
+        "speed_text": "⚡ Downloaded in {seconds}s",
+        "stats_text": (
+            "📊 **Bot Statistics:**\n\n"
+            "👥 Total: **{total}**\n"
+            "📅 Today: **{today}**\n"
+            "🚫 Banned: **{banned}**"
+        ),
+        "broadcast_start": "📢 Broadcast started...",
+        "broadcast_done": "✅ Broadcast done.\n\n📨 Sent: **{sent}**\n❌ Failed: **{failed}**",
+        "user_banned": "🚫 User banned: `{uid}`",
+        "user_unbanned": "✅ User unbanned: `{uid}`",
+        "banned_msg": "⛔ You are banned. Admin: @theSarvar_04",
+        "admin_only": "⛔ This command is for admin only.",
+        "btn_favorite": "⭐ Favorite",
+        "btn_audio": "🎵 Download audio",
+        "caption": "📥 Downloaded from {platform}\n@InstaDownloader_uzBot",
+        "caption_speed": "📥 Downloaded from {platform} | ⚡ {seconds}s\n@InstaDownloader_uzBot",
+    },
+    "ru": {
+        "start": (
+            "👋 Привет, **{name}**!\n\n"
+            "📥 Я бот **Instagram & TikTok Saver**.\n\n"
+            "📌 Что я могу скачать:\n"
+            "• 🎬 Instagram Reels (видео/аудио)\n"
+            "• 🖼 Instagram Посты (фото/видео)\n"
+            "• 📖 Instagram Stories\n"
+            "• 🎵 TikTok видео\n\n"
+            "🎯 **Команды:**\n"
+            "• /favorites — Избранное\n"
+            "• /help — Инструкция\n"
+            "• /lang — Сменить язык\n\n"
+            "➡️ Отправьте ссылку Instagram или TikTok!"
+        ),
+        "help": (
+            "📖 **Инструкция:**\n\n"
+            "1️⃣ Откройте пост/рилс в Instagram/TikTok\n"
+            "2️⃣ Скопируйте ссылку\n"
+            "3️⃣ Отправьте мне\n"
+            "4️⃣ Скачается ✅\n\n"
+            "💡 **Дополнительно:**\n"
+            "• Фото — автоматически скачивается\n"
+            "• Видео — выбор Видео/Аудио\n"
+            "• Карусель — все фото скачиваются\n"
+            "• /favorites — список избранного\n"
+            "• /lang — сменить язык\n\n"
+            "⚠️ **Не работает:**\n"
+            "• Посты приватных аккаунтов\n"
+            "• Удалённые посты\n\n"
+            "📩 **Обратная связь:** @theSarvar_04"
+        ),
+        "lang_choose": "🌐 **Tilni tanlang / Choose language / Выберите язык:**",
+        "lang_set": "✅ Язык изменён: **Русский** 🇷🇺",
+        "send_link": "📎 Отправьте ссылку Instagram или TikTok.",
+        "only_insta_tiktok": "⚠️ Я принимаю только ссылки **Instagram** и **TikTok**.",
+        "favorites_empty": "⭐ **Список избранного пуст.**\n\nОтправьте ссылку и нажмите \"⭐\"!",
+        "favorites_title": "⭐ **Избранное:**\n\n",
+        "downloading": "⬇️ Скачиваю...",
+        "downloaded": "📥 Скачано",
+        "download_error": "❌ Не удалось скачать.",
+        "private_error": "❌ Этот пост приватный.",
+        "login_error": "❌ Требуется авторизация.",
+        "not_found_error": "❌ Пост не найден или удалён.",
+        "audio_extracting": "🎵 Извлекаю аудио...",
+        "audio_done": "🎵 Скачано",
+        "subscribe_channel": "❗ Подпишитесь на канал, чтобы использовать бота:\n\n👉 {channel}\n\n✅ После подписки отправьте снова.",
+        "speed_text": "⚡ Скачано за {seconds}с",
+        "stats_text": (
+            "📊 **Статистика бота:**\n\n"
+            "👥 Всего: **{total}**\n"
+            "📅 Сегодня: **{today}**\n"
+            "🚫 Забанено: **{banned}**"
+        ),
+        "broadcast_start": "📢 Рассылка началась...",
+        "broadcast_done": "✅ Рассылка завершена.\n\n📨 Отправлено: **{sent}**\n❌ Ошибки: **{failed}**",
+        "user_banned": "🚫 Пользователь заблокирован: `{uid}`",
+        "user_unbanned": "✅ Пользователь разблокирован: `{uid}`",
+        "banned_msg": "⛔ Вы заблокированы. Админ: @theSarvar_04",
+        "admin_only": "⛔ Эта команда только для админа.",
+        "btn_favorite": "⭐ В избранное",
+        "btn_audio": "🎵 Скачать аудио",
+        "caption": "📥 Скачано из {platform}\n@InstaDownloader_uzBot",
+        "caption_speed": "📥 Скачано из {platform} | ⚡ {seconds}с\n@InstaDownloader_uzBot",
+    },
+}
+
+
+def get_user_lang(user_id: int) -> str:
+    if r:
+        lang = r.get(f"lang:{user_id}")
+        if lang and lang in TEXTS:
+            return lang
+    return "uz"
+
+
+def set_user_lang(user_id: int, lang: str):
+    if r:
+        r.set(f"lang:{user_id}", lang)
+
+
+def t(user_id: int, key: str, **kwargs) -> str:
+    lang = get_user_lang(user_id)
+    text = TEXTS.get(lang, TEXTS["uz"]).get(key, TEXTS["uz"].get(key, ""))
+    if kwargs:
+        return text.format(**kwargs)
+    return text
+
+
+# ═══════════════════════════════════════════════════════════
 # 📊 REDIS YORDAMCHI FUNKSIYALAR
 # ═══════════════════════════════════════════════════════════
 
@@ -78,18 +307,41 @@ def save_user(user_id: int):
 
 def get_stats() -> dict:
     if not r:
-        return {"total": 0, "today": 0}
+        return {"total": 0, "today": 0, "banned": 0}
     today = str(date.today())
     total = r.scard("users:all") or 0
     today_count = r.scard(f"users:date:{today}") or 0
-    return {"total": total, "today": today_count}
+    banned = r.scard("users:banned") or 0
+    return {"total": total, "today": today_count, "banned": banned}
+
+
+def is_banned(user_id: int) -> bool:
+    if not r:
+        return False
+    return r.sismember("users:banned", str(user_id))
+
+
+def ban_user(user_id: int):
+    if r:
+        r.sadd("users:banned", str(user_id))
+
+
+def unban_user(user_id: int):
+    if r:
+        r.srem("users:banned", str(user_id))
+
+
+def get_all_users() -> list:
+    if not r:
+        return []
+    return list(r.smembers("users:all"))
 
 
 # ═══════════════════════════════════════════════════════════
 # 💾 CACHE TIZIMI
 # ═══════════════════════════════════════════════════════════
 
-CACHE_TTL = 86400 * 7  # 7 kun
+CACHE_TTL = 86400 * 7
 
 
 def get_cache(url: str, mode: str):
@@ -110,7 +362,7 @@ def set_cache(url: str, mode: str, file_data: dict):
 
 
 # ═══════════════════════════════════════════════════════════
-# ⭐ SEVIMLILAR RO'YXATI
+# ⭐ SEVIMLILAR
 # ═══════════════════════════════════════════════════════════
 
 MAX_FAVORITES = 10
@@ -120,7 +372,6 @@ def add_favorite(user_id: int, url: str):
     if not r:
         return
     key = f"favorites:{user_id}"
-    # Dublikat qo'shmaslik
     existing = r.lrange(key, 0, -1)
     if url in existing:
         return
@@ -136,7 +387,7 @@ def get_favorites(user_id: int) -> list:
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔗 HAVOLA ANIQLAGICH
+# 🔗 HAVOLA ANIQLAGICH (Instagram + TikTok)
 # ═══════════════════════════════════════════════════════════
 
 def extract_instagram_url(text: str) -> str | None:
@@ -145,97 +396,45 @@ def extract_instagram_url(text: str) -> str | None:
     return match.group(0) if match else None
 
 
+def extract_tiktok_url(text: str) -> str | None:
+    pattern = r'https?://(?:www\.|vm\.|vt\.)?(?:tiktok\.com)/[^\s\'"<>]+'
+    match = re.search(pattern, text)
+    return match.group(0) if match else None
+
+
+def extract_any_url(text: str) -> tuple[str | None, str]:
+    """Returns (url, platform) — platform: 'instagram' or 'tiktok'"""
+    url = extract_instagram_url(text)
+    if url:
+        return url, "Instagram"
+    url = extract_tiktok_url(text)
+    if url:
+        return url, "TikTok"
+    return None, ""
+
+
 # ═══════════════════════════════════════════════════════════
-# 📊 ZAMONAVIY PROGRESS BAR
+# 🔔 KANAL OBUNA TEKSHIRISH
 # ═══════════════════════════════════════════════════════════
 
-class ProgressBar:
-    STAGES = [
-        ("🔍", "Link tekshirilmoqda...", 10),
-        ("📡", "Instagram ga ulanilmoqda...", 25),
-        ("⬇️", "Yuklab olinmoqda...", 50),
-        ("🔄", "Format o'zgartirilmoqda...", 75),
-        ("📤", "Telegram ga yuborilmoqda...", 90),
-        ("✅", "Tayyor!", 100),
-    ]
-
-    @staticmethod
-    def render(percent: int) -> str:
-        filled = int(percent / 10)
-        empty = 10 - filled
-        bar = "▓" * filled + "░" * empty
-        return f"[{bar}] {percent}%"
-
-    @staticmethod
-    def get_stage_text(stage_index: int) -> str:
-        if stage_index >= len(ProgressBar.STAGES):
-            stage_index = len(ProgressBar.STAGES) - 1
-        emoji, text, percent = ProgressBar.STAGES[stage_index]
-        bar = ProgressBar.render(percent)
-        return f"{emoji} {text}\n\n{bar}"
-
-
-async def update_progress(status_msg: Message, stage: int):
+async def check_subscription(client, user_id: int) -> bool:
+    """Foydalanuvchi kanalga obuna bo'lganligini tekshirish"""
+    if not CHANNEL_ID:
+        return True  # Kanal sozlanmagan — tekshirish o'tkazilmaydi
     try:
-        text = ProgressBar.get_stage_text(stage)
-        await status_msg.edit_text(text)
+        member = await client.get_chat_member(CHANNEL_ID, user_id)
+        return member.status in [
+            ChatMemberStatus.MEMBER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.OWNER,
+        ]
     except Exception:
-        pass
+        return True  # Xatolik bo'lsa — o'tkazib yuboramiz
 
 
 # ═══════════════════════════════════════════════════════════
 # ⬇️ YUKLAB OLISH FUNKSIYALARI
 # ═══════════════════════════════════════════════════════════
-
-async def detect_media_type(url: str) -> str:
-    """Link rasm mi yoki video: 'photo', 'video', 'unknown'"""
-    try:
-        loop = asyncio.get_running_loop()
-
-        def _extract():
-            ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
-                "socket_timeout": 15,
-                "skip_download": True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                return ydl.extract_info(url, download=False)
-
-        info = await loop.run_in_executor(None, _extract)
-
-        if not info:
-            return "unknown"
-
-        # Carousel tekshirish
-        entries = info.get("entries")
-        if entries:
-            for entry in entries:
-                if entry and entry.get("ext") in ["mp4", "webm", "mov", "mkv"]:
-                    return "video"
-                if entry and entry.get("vcodec") and entry.get("vcodec") != "none":
-                    return "video"
-            return "photo"
-
-        # Yagona media
-        ext = info.get("ext", "")
-        vcodec = info.get("vcodec", "none")
-
-        if ext in ["jpg", "jpeg", "png", "webp"]:
-            return "photo"
-        elif ext in ["mp4", "webm", "mov", "mkv"] or (vcodec and vcodec != "none"):
-            return "video"
-        else:
-            return "unknown"
-
-    except yt_dlp.utils.DownloadError as e:
-        # "no video in this post" — bu rasm
-        if "no video" in str(e).lower():
-            return "photo"
-        return "unknown"
-    except Exception:
-        return "unknown"
-
 
 async def download_video(url: str, chat_id: int):
     output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
@@ -264,105 +463,33 @@ async def download_photo(url: str, chat_id: int):
 
         def _download_with_instaloader():
             import instaloader
+            import urllib.request
 
-            L = instaloader.Instaloader(
-                download_videos=False,
-                download_video_thumbnails=False,
-                download_geotags=False,
-                download_comments=False,
-                save_metadata=False,
-                compress_json=False,
-                post_metadata_txt_pattern="",
-                quiet=True,
-                dirname_pattern=str(DOWNLOAD_DIR),
-                filename_pattern=f"{chat_id}_{{shortcode}}"
-            )
-
-            # URL dan shortcode olish
-            shortcode = None
-            import re as _re
-            match = _re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
-            if match:
-                shortcode = match.group(1)
-
-            if not shortcode:
-                return False
-
-            try:
-                post = instaloader.Post.from_shortcode(L.context, shortcode)
-                L.download_post(post, target="")
-            except Exception:
-                # Target ni DOWNLOAD_DIR ga moslaymiz
-                try:
-                    post = instaloader.Post.from_shortcode(L.context, shortcode)
-                    # Manually download
-                    if post.typename == 'GraphSidecar':
-                        # Carousel — ko'p rasm
-                        for i, node in enumerate(post.get_sidecar_nodes()):
-                            if not node.is_video:
-                                img_url = node.display_url
-                                filepath = DOWNLOAD_DIR / f"{chat_id}_photo_{i}.jpg"
-                                import urllib.request
-                                urllib.request.urlretrieve(img_url, str(filepath))
-                    else:
-                        if not post.is_video:
-                            img_url = post.url
-                            filepath = DOWNLOAD_DIR / f"{chat_id}_photo_0.jpg"
-                            import urllib.request
-                            urllib.request.urlretrieve(img_url, str(filepath))
-                except Exception:
-                    return False
-
-            return True
-
-        result = await loop.run_in_executor(None, _download_with_instaloader)
-
-        # Fayllarni tekshirish — faqat rasm fayllar
-        PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-        files = [f for f in DOWNLOAD_DIR.iterdir()
-                 if f.name.startswith(str(chat_id)) and f.suffix.lower() in PHOTO_EXTS]
-        if files:
-            return files, None
-
-        if not result:
-            return await _download_photo_fallback(url, chat_id)
-
-        return None, "❌ Rasm topilmadi."
-
-    except Exception as e:
-        # Fallback urinish
-        return await _download_photo_fallback(url, chat_id)
-
-
-async def _download_photo_fallback(url: str, chat_id: int):
-    """Fallback: instaloader Post.from_shortcode dan display_url orqali yuklab olish"""
-    try:
-        import instaloader
-        import urllib.request
-
-        loop = asyncio.get_running_loop()
-
-        def _get_photo():
             L = instaloader.Instaloader(quiet=True)
-
-            # URL dan shortcode olish
-            import re as _re
-            match = _re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
+            match = re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
             if not match:
                 return None
 
             shortcode = match.group(1)
-            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            try:
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
+            except Exception:
+                return None
 
             downloaded = []
 
             if post.typename == 'GraphSidecar':
-                # Carousel post
                 for i, node in enumerate(post.get_sidecar_nodes()):
                     if not node.is_video:
                         img_url = node.display_url
                         filepath = DOWNLOAD_DIR / f"{chat_id}_photo_{i}.jpg"
                         urllib.request.urlretrieve(img_url, str(filepath))
+                        downloaded.append(filepath)
+                    else:
+                        # Carousel dagi video
+                        vid_url = node.video_url
+                        filepath = DOWNLOAD_DIR / f"{chat_id}_video_{i}.mp4"
+                        urllib.request.urlretrieve(vid_url, str(filepath))
                         downloaded.append(filepath)
             else:
                 if not post.is_video:
@@ -373,17 +500,17 @@ async def _download_photo_fallback(url: str, chat_id: int):
 
             return downloaded
 
-        files = await loop.run_in_executor(None, _get_photo)
+        files = await loop.run_in_executor(None, _download_with_instaloader)
 
         if files:
             return files, None
-        return None, "❌ Rasm yuklab bo'lmadi."
+        return None, "❌ Rasm topilmadi."
 
     except Exception as e:
         err = str(e).lower()
         if "private" in err or "login" in err:
-            return None, "❌ Bu post xususiy (private) yoki login talab qiladi."
-        return None, f"❌ Rasm yuklab bo'lmadi: `{str(e)[:120]}`"
+            return None, "private"
+        return None, f"❌ Yuklab bo'lmadi: `{str(e)[:100]}`"
 
 
 async def download_audio(url: str, chat_id: int):
@@ -416,23 +543,20 @@ async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
         files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
         if files:
             return files, None
-        return None, "❌ Fayl topilmadi."
+        return None, "not_found"
 
     except yt_dlp.utils.DownloadError as e:
         err = str(e).lower()
         if "private" in err:
-            return None, "❌ Bu akkaunt yoki post xususiy (private)."
+            return None, "private"
         elif "login" in err or "sign in" in err or "cookie" in err:
-            if "instagram" in err:
-                return None, "❌ Instagram login talab qilmoqda. Admin bilan bog'laning."
-            else:
-                return None, f"❌ Yuklab bo'lmadi.\n`{str(e)[:120]}`"
+            return None, "login"
         elif "not available" in err or "removed" in err:
-            return None, "❌ Bu post mavjud emas yoki o'chirilgan."
+            return None, "not_found"
         else:
-            return None, f"❌ Yuklab bo'lmadi.\n`{str(e)[:120]}`"
+            return None, f"❌ `{str(e)[:120]}`"
     except Exception as e:
-        return None, f"❌ Xatolik yuz berdi: `{str(e)[:120]}`"
+        return None, f"❌ `{str(e)[:120]}`"
 
 
 def cleanup(chat_id: int):
@@ -444,6 +568,18 @@ def cleanup(chat_id: int):
                 pass
 
 
+def get_error_text(user_id: int, error: str) -> str:
+    if error == "private":
+        return t(user_id, "private_error")
+    elif error == "login":
+        return t(user_id, "login_error")
+    elif error == "not_found":
+        return t(user_id, "not_found_error")
+    elif error.startswith("❌"):
+        return error
+    return t(user_id, "download_error")
+
+
 # ═══════════════════════════════════════════════════════════
 # 🤖 BOT KOMANDALAR
 # ═══════════════════════════════════════════════════════════
@@ -452,231 +588,206 @@ def cleanup(chat_id: int):
 async def cmd_start(client, message: Message):
     user = message.from_user
     save_user(user.id)
-
-    await message.reply(
-        f"👋 Salom, **{user.first_name}**!\n\n"
-        "📥 Men **Instagram Saver** botman.\n\n"
-        "📌 Nima yuklay olaman:\n"
-        "• 🎬 Reels (video yoki audio)\n"
-        "• 🖼 Postlar (rasm/video)\n"
-        "• 📖 Stories\n\n"
-        "🎯 **Buyruqlar:**\n"
-        "• /favorites — Sevimlilar\n"
-        "• /help — Qo'llanma\n\n"
-        "➡️ Instagram havolasini yuboring!"
-    )
+    await message.reply(t(user.id, "start", name=user.first_name))
 
 
 @app.on_message(filters.command("help"))
 async def cmd_help(client, message: Message):
+    await message.reply(t(message.from_user.id, "help"))
+
+
+@app.on_message(filters.command("lang"))
+async def cmd_lang(client, message: Message):
     await message.reply(
-        "📖 **Qo'llanma:**\n\n"
-        "1️⃣ Instagram da post/reel/story ni oching\n"
-        "2️⃣ Havolasini nusxalang\n"
-        "3️⃣ Menga yuboring\n"
-        "4️⃣ Yuklanib keladi ✅\n\n"
-        "💡 **Qo'shimcha:**\n"
-        "• Rasm bo'lsa — avtomatik yuklab beradi\n"
-        "• Video bo'lsa — Video/Audio tanlash mumkin\n"
-        "• Xabar ichida link bo'lsa ham topaman\n"
-        "• /favorites — sevimlilar ro'yxati\n\n"
-        "⚠️ **Ishlamaydi:**\n"
-        "• Private akkaunt postlari\n"
-        "• O'chirilgan postlar\n\n"
-        "📩 **Talab va takliflar:** @theSarvar_04"
+        t(message.from_user.id, "lang_choose"),
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="lang|uz"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="lang|en"),
+                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang|ru"),
+            ]
+        ])
     )
 
 
 @app.on_message(filters.command("favorites"))
 async def cmd_favorites(client, message: Message):
-    favs = get_favorites(message.from_user.id)
+    uid = message.from_user.id
+    favs = get_favorites(uid)
 
     if not favs:
-        await message.reply(
-            "⭐ **Sevimlilar ro'yxati bo'sh.**\n\n"
-            "Instagram havolasi yuboring va \"⭐ Sevimlilarga qo'shish\" tugmasini bosing!"
-        )
+        await message.reply(t(uid, "favorites_empty"))
         return
 
-    text = "⭐ **Sevimlilar:**\n\n"
+    text = t(uid, "favorites_title")
     for i, url in enumerate(favs, 1):
         short = url.split("?")[0]
         text += f"{i}. {short}\n"
 
-    text += "\n💡 Havolani bosib qayta yuklashingiz mumkin."
     await message.reply(text, disable_web_page_preview=True)
 
+
+# ═══════════════════════════════════════════════════════════
+# 🛡 ADMIN PANEL
+# ═══════════════════════════════════════════════════════════
 
 @app.on_message(filters.command("stats"))
 async def cmd_stats(client, message: Message):
     if message.from_user.id != ADMIN_ID:
-        await message.reply("⛔ Bu buyruq faqat admin uchun.")
+        await message.reply(t(message.from_user.id, "admin_only"))
         return
 
     stats = get_stats()
-    await message.reply(
-        f"📊 **Bot statistikasi:**\n\n"
-        f"👥 Jami foydalanuvchilar: **{stats['total']}** ta\n"
-        f"📅 Bugun qo'shildi: **{stats['today']}** ta"
-    )
+    await message.reply(t(message.from_user.id, "stats_text",
+                          total=stats["total"], today=stats["today"], banned=stats["banned"]))
+
+
+@app.on_message(filters.command("broadcast"))
+async def cmd_broadcast(client, message: Message):
+    """Admin: barcha foydalanuvchilarga xabar yuborish. /broadcast Xabar matni"""
+    if message.from_user.id != ADMIN_ID:
+        await message.reply(t(message.from_user.id, "admin_only"))
+        return
+
+    text = message.text.replace("/broadcast", "", 1).strip()
+    if not text:
+        await message.reply("📢 Foydalanish: `/broadcast Xabar matni`")
+        return
+
+    users = get_all_users()
+    if not users:
+        await message.reply("❌ Foydalanuvchilar topilmadi.")
+        return
+
+    status = await message.reply(t(message.from_user.id, "broadcast_start"))
+    sent = 0
+    failed = 0
+
+    for uid in users:
+        if is_banned(int(uid)):
+            continue
+        try:
+            await client.send_message(int(uid), text)
+            sent += 1
+            await asyncio.sleep(0.05)  # flood limitdan qochish
+        except Exception:
+            failed += 1
+
+    await status.edit_text(t(message.from_user.id, "broadcast_done", sent=sent, failed=failed))
+
+
+@app.on_message(filters.command("ban"))
+async def cmd_ban(client, message: Message):
+    """Admin: foydalanuvchini bloklash. /ban user_id"""
+    if message.from_user.id != ADMIN_ID:
+        await message.reply(t(message.from_user.id, "admin_only"))
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("Foydalanish: `/ban user_id`")
+        return
+
+    try:
+        uid = int(parts[1])
+        ban_user(uid)
+        await message.reply(t(message.from_user.id, "user_banned", uid=uid))
+    except ValueError:
+        await message.reply("❌ Noto'g'ri user_id.")
+
+
+@app.on_message(filters.command("unban"))
+async def cmd_unban(client, message: Message):
+    """Admin: foydalanuvchini blokdan chiqarish. /unban user_id"""
+    if message.from_user.id != ADMIN_ID:
+        await message.reply(t(message.from_user.id, "admin_only"))
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("Foydalanish: `/unban user_id`")
+        return
+
+    try:
+        uid = int(parts[1])
+        unban_user(uid)
+        await message.reply(t(message.from_user.id, "user_unbanned", uid=uid))
+    except ValueError:
+        await message.reply("❌ Noto'g'ri user_id.")
 
 
 # ═══════════════════════════════════════════════════════════
 # 📨 ASOSIY XABAR HANDLER
 # ═══════════════════════════════════════════════════════════
 
-@app.on_message(filters.text & ~filters.command(["start", "help", "stats", "favorites"]))
+@app.on_message(filters.text & ~filters.command(["start", "help", "stats", "favorites", "lang", "broadcast", "ban", "unban"]))
 async def handle_message(client, message: Message):
+    user = message.from_user
+    uid = user.id
     text = message.text.strip()
     is_group = message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]
 
-    # 🔗 Havola aniqlagich
-    url = extract_instagram_url(text)
+    # Bloklangan foydalanuvchi tekshirish
+    if is_banned(uid):
+        if not is_group:
+            await message.reply(t(uid, "banned_msg"))
+        return
+
+    # Havola aniqlash (Instagram + TikTok)
+    url, platform = extract_any_url(text)
 
     if is_group:
         if not url:
             return
     else:
         if not url:
-            if not text.startswith("http"):
-                await message.reply(
-                    "📎 Instagram havolasini yuboring.\n\n"
-                    "Masalan:\n`https://www.instagram.com/reel/ABC123/`\n\n"
-                    "💡 Xabar ichida link bo'lsa ham topaman!"
-                )
+            if text.startswith("http"):
+                await message.reply(t(uid, "only_insta_tiktok"))
             else:
-                await message.reply(
-                    "⚠️ Faqat **Instagram** havolalarini qabul qilaman.\n\n"
-                    "Masalan:\n`https://www.instagram.com/reel/...`"
-                )
+                await message.reply(t(uid, "send_link"))
             return
 
-    # ❤️ Like reaction bosish (xavfsiz — versiyaga bog'liq)
+    # Kanal obuna tekshirish
+    if not await check_subscription(client, uid):
+        channel_display = CHANNEL_ID if CHANNEL_ID.startswith("@") else f"@{CHANNEL_ID}"
+        await message.reply(t(uid, "subscribe_channel", channel=channel_display))
+        return
+
+    save_user(uid)
+
+    # Like reaction
     try:
         await app.send_reaction(message.chat.id, message.id, "❤")
-    except AttributeError:
-        pass
     except Exception:
         pass
 
-    # 💾 CACHE TEKSHIRISH — avval yuklangan bo'lsa darhol yuborish
-    cached_video = get_cache(url, "video")
-    cached_photo = get_cache(url, "photo")
+    # Vaqtni boshlash (tezlik uchun)
+    start_time = _time.time()
 
-    if cached_video:
-        try:
-            if cached_video["type"] == "video":
-                await message.reply_video(
-                    cached_video["file_id"],
-                    caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
-                    supports_streaming=True,
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
-                        [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
-                    ])
-                )
-            elif cached_video["type"] == "document":
-                await message.reply_document(
-                    cached_video["file_id"],
-                    caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
-                        [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
-                    ])
-                )
-            pending_urls[message.id] = url
-            return
-        except Exception:
-            pass
+    # Status xabar
+    status = await message.reply(t(uid, "downloading"))
 
-    if cached_photo:
-        try:
-            if cached_photo["type"] == "photo":
-                await message.reply_photo(
-                    cached_photo["file_id"],
-                    caption="📥 Instagram dan yuklandi ⚡\n@InstaDownloader_uzBot",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
-                    ])
-                )
-            pending_urls[message.id] = url
-            return
-        except Exception:
-            pass
+    # VIDEO yuklab olish
+    files, error = await download_video(url, message.chat.id)
 
-    # 📊 Progress boshlash — media turini aniqlash
-    status = await message.reply(ProgressBar.get_stage_text(0))
-
-    await asyncio.sleep(0.3)
-    await update_progress(status, 1)
-
-    # 🔍 Media turini aniqlash
-    media_type = await detect_media_type(url)
-
-    if media_type == "photo":
-        # 🖼 RASM — to'g'ridan-to'g'ri yuklab yuborish
-        await update_progress(status, 2)
-
-        files, error = await download_photo(url, message.chat.id)
-
-        if error:
-            await status.edit_text(error)
-            return
-
-        await update_progress(status, 4)
-
-        try:
-            for filepath in files:
-                ext = filepath.suffix.lower()
-                if ext in [".jpg", ".jpeg", ".png", ".webp"]:
-                    try:
-                        sent = await message.reply_photo(
-                            str(filepath),
-                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
-                            reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
-                            ])
-                        )
-                        set_cache(url, "photo", {"type": "photo", "file_id": sent.photo.file_id})
-                    except Exception:
-                        sent = await message.reply_document(
-                            str(filepath),
-                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                        )
-                else:
-                    sent = await message.reply_document(
-                        str(filepath),
-                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                    )
-
-            # URL ni saqlash (fav tugma uchun)
-            pending_urls[message.id] = url
-
-            await update_progress(status, 5)
-            await asyncio.sleep(0.8)
-            await status.delete()
-
-        except Exception as e:
-            await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
-        finally:
-            cleanup(message.chat.id)
-
-    else:
-        # 🎬 VIDEO yoki UNKNOWN — avval video, xato bo'lsa rasm sifatida yuklab ko'rish
-        await update_progress(status, 2)
-
-        files, error = await download_video(url, message.chat.id)
-
-        # Agar video yuklab bo'lmasa — rasm sifatida urinib ko'ramiz
-        if error and ("no video" in str(error).lower() or "not a video" in str(error).lower() or "there is no video" in str(error).lower()):
+    # Agar video bo'lmasa — rasm sifatida urinib ko'ramiz (faqat Instagram)
+    if error and platform == "Instagram":
+        err_str = str(error).lower()
+        if "no video" in err_str or "not a video" in err_str or "there is no video" in err_str or error == "not_found":
             cleanup(message.chat.id)
             files, error = await download_photo(url, message.chat.id)
 
             if error:
-                await status.edit_text(error)
+                await status.edit_text(get_error_text(uid, error))
                 return
 
-            await update_progress(status, 4)
+            if not files:
+                await status.edit_text(t(uid, "download_error"))
+                return
+
+            # Tezlik hisoblash
+            elapsed = round(_time.time() - start_time, 1)
+            caption = t(uid, "caption_speed", platform=platform, seconds=elapsed)
 
             try:
                 for filepath in files:
@@ -685,165 +796,172 @@ async def handle_message(client, message: Message):
                         try:
                             sent = await message.reply_photo(
                                 str(filepath),
-                                caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
+                                caption=caption,
                                 reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")]
+                                    [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")]
                                 ])
                             )
                             set_cache(url, "photo", {"type": "photo", "file_id": sent.photo.file_id})
                         except Exception:
-                            sent = await message.reply_document(
+                            await message.reply_document(str(filepath), caption=caption)
+                    elif ext in [".mp4", ".mov", ".mkv", ".webm"]:
+                        try:
+                            sent = await message.reply_video(
                                 str(filepath),
-                                caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
+                                caption=caption,
+                                supports_streaming=True,
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
+                                    [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
+                                ])
                             )
+                        except Exception:
+                            await message.reply_document(str(filepath), caption=caption)
                     else:
-                        sent = await message.reply_document(
-                            str(filepath),
-                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot"
-                        )
+                        await message.reply_document(str(filepath), caption=caption)
 
                 pending_urls[message.id] = url
-                await update_progress(status, 5)
-                await asyncio.sleep(0.8)
                 await status.delete()
-
             except Exception as e:
-                await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
+                await status.edit_text(f"❌ `{str(e)[:100]}`")
             finally:
                 cleanup(message.chat.id)
             return
 
-        if error:
-            await status.edit_text(error)
-            return
+    if error:
+        await status.edit_text(get_error_text(uid, error))
+        return
 
-        await update_progress(status, 3)
-        await asyncio.sleep(0.3)
-        await update_progress(status, 4)
+    if not files:
+        await status.edit_text(t(uid, "download_error"))
+        return
 
-        try:
-            for filepath in files:
-                ext = filepath.suffix.lower()
+    # Tezlik hisoblash
+    elapsed = round(_time.time() - start_time, 1)
+    caption = t(uid, "caption_speed", platform=platform, seconds=elapsed)
 
-                if ext in [".mp4", ".mov", ".mkv", ".webm"]:
-                    try:
-                        sent = await message.reply_video(
-                            str(filepath),
-                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
-                            supports_streaming=True,
-                            reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
-                                [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
-                            ])
-                        )
-                        set_cache(url, "video", {"type": "video", "file_id": sent.video.file_id})
-                    except Exception:
-                        sent = await message.reply_document(
-                            str(filepath),
-                            caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
-                            reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
-                                [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
-                            ])
-                        )
-                        set_cache(url, "video", {"type": "document", "file_id": sent.document.file_id})
-                else:
-                    sent = await message.reply_document(
+    try:
+        for filepath in files:
+            ext = filepath.suffix.lower()
+            if ext in [".mp4", ".mov", ".mkv", ".webm"]:
+                try:
+                    sent = await message.reply_video(
                         str(filepath),
-                        caption="📥 Instagram dan yuklandi\n@InstaDownloader_uzBot",
+                        caption=caption,
+                        supports_streaming=True,
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⭐ Sevimlilarga qo'shish", callback_data=f"fav|{message.id}")],
-                            [InlineKeyboardButton("🎵 Musiqani yuklab olish", callback_data=f"audio|{message.id}")]
+                            [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
+                            [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
                         ])
                     )
+                    set_cache(url, "video", {"type": "video", "file_id": sent.video.file_id})
+                except Exception:
+                    sent = await message.reply_document(
+                        str(filepath),
+                        caption=caption,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
+                            [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
+                        ])
+                    )
+                    set_cache(url, "video", {"type": "document", "file_id": sent.document.file_id})
+            elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                try:
+                    sent = await message.reply_photo(
+                        str(filepath),
+                        caption=caption,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")]
+                        ])
+                    )
+                except Exception:
+                    await message.reply_document(str(filepath), caption=caption)
+            else:
+                await message.reply_document(str(filepath), caption=caption)
 
-            # URL ni saqlash (fav tugma uchun)
-            pending_urls[message.id] = url
+        pending_urls[message.id] = url
+        await status.delete()
 
-            await update_progress(status, 5)
-            await asyncio.sleep(0.8)
-            await status.delete()
-
-        except Exception as e:
-            await status.edit_text(f"❌ Yuborishda xatolik: `{str(e)[:100]}`")
-        finally:
-            cleanup(message.chat.id)
+    except Exception as e:
+        await status.edit_text(f"❌ `{str(e)[:100]}`")
+    finally:
+        cleanup(message.chat.id)
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔘 CALLBACK HANDLER — Tugma bosilganda
+# 🔘 CALLBACK HANDLERS
 # ═══════════════════════════════════════════════════════════
+
+@app.on_callback_query(filters.regex(r"^lang\|"))
+async def callback_lang(client, callback: CallbackQuery):
+    """Til tanlash tugmasi"""
+    lang = callback.data.split("|")[1]
+    set_user_lang(callback.from_user.id, lang)
+    await callback.message.edit_text(t(callback.from_user.id, "lang_set"))
+
 
 @app.on_callback_query(filters.regex(r"^fav\|"))
 async def callback_favorite(client, callback: CallbackQuery):
-    """⭐ Sevimlilarga qo'shish tugmasi bosilganda"""
     msg_id = int(callback.data.split("|")[1])
     user_id = callback.from_user.id
     url = pending_urls.get(msg_id)
 
     if url:
         add_favorite(user_id, url)
-        await callback.answer("⭐ Sevimlilarga qo'shildi!", show_alert=False)
+        await callback.answer("⭐", show_alert=False)
     else:
-        await callback.answer("⚠️ Link topilmadi.", show_alert=False)
+        await callback.answer("⚠️", show_alert=False)
 
-
-# ═══════════════════════════════════════════════════════════
-# 🎵 AUDIO CALLBACK — Instagram videodan audio ajratish
-# ═══════════════════════════════════════════════════════════
 
 @app.on_callback_query(filters.regex(r"^audio\|"))
 async def callback_audio(client, callback: CallbackQuery):
-    """🎵 Instagram videodan audio ajratib MP3 qilib yuborish"""
+    """Instagram/TikTok videodan audio ajratib MP3 qilib yuborish"""
     msg_id = int(callback.data.split("|")[1])
+    uid = callback.from_user.id
     chat_id = callback.message.chat.id
     url = pending_urls.get(msg_id)
 
     if not url:
-        await callback.answer("⚠️ Link eskirgan. Qayta yuboring.", show_alert=True)
+        await callback.answer("⚠️", show_alert=True)
         return
 
-    await callback.answer("🎵 Audio yuklanmoqda...", show_alert=False)
+    await callback.answer("🎵", show_alert=False)
 
-    status = await callback.message.reply("🎵 Instagram dan audio ajratilmoqda...")
+    status = await callback.message.reply(t(uid, "audio_extracting"))
 
     try:
+        start_time = _time.time()
         files, error = await download_audio(url, chat_id)
 
         if error:
-            await status.edit_text(error)
+            await status.edit_text(get_error_text(uid, error))
             return
 
         if not files:
-            await status.edit_text("❌ Audio yuklab bo'lmadi.")
+            await status.edit_text(t(uid, "download_error"))
             return
 
-        # Track nomini aniqlash (agar mavjud bo'lsa)
-        title = "Instagram Audio"
+        elapsed = round(_time.time() - start_time, 1)
+
+        # Track nomini aniqlash
+        title = "Audio"
         try:
             loop = asyncio.get_running_loop()
 
             def _get_title():
                 try:
-                    ydl_opts = {
-                        "quiet": True,
-                        "no_warnings": True,
-                        "socket_timeout": 10,
-                        "skip_download": True,
-                    }
+                    ydl_opts = {"quiet": True, "no_warnings": True, "socket_timeout": 10, "skip_download": True}
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(url, download=False)
                         if info:
                             track = info.get("track") or ""
                             artist = info.get("artist") or info.get("creator") or ""
-                            t = info.get("title") or ""
-
+                            ti = info.get("title") or ""
                             if track:
                                 return f"{artist} — {track}" if artist else track
-
-                            generic = ["instagram", "reel", "video", "post"]
-                            if t and not any(g in t.lower() for g in generic):
-                                return t
+                            generic = ["instagram", "reel", "video", "post", "tiktok"]
+                            if ti and not any(g in ti.lower() for g in generic):
+                                return ti
                 except Exception:
                     pass
                 return ""
@@ -859,7 +977,7 @@ async def callback_audio(client, callback: CallbackQuery):
             if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
                 await callback.message.reply_audio(
                     str(filepath),
-                    caption=f"🎵 {title}\n@InstaDownloader_uzBot",
+                    caption=f"🎵 {title} | ⚡ {elapsed}s\n@InstaDownloader_uzBot",
                     title=title
                 )
             else:
@@ -871,9 +989,61 @@ async def callback_audio(client, callback: CallbackQuery):
         await status.delete()
 
     except Exception as e:
-        await status.edit_text(f"❌ Xatolik: `{str(e)[:100]}`")
+        await status.edit_text(f"❌ `{str(e)[:100]}`")
     finally:
         cleanup(chat_id)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🌐 INLINE MODE
+# ═══════════════════════════════════════════════════════════
+
+@app.on_inline_query()
+async def handle_inline(client, inline_query: InlineQuery):
+    """Inline mode — har qanday chatda @botname link yozsa ishlaydi"""
+    query = inline_query.query.strip()
+
+    if not query:
+        await inline_query.answer(
+            results=[
+                InlineQueryResultArticle(
+                    title="📥 Instagram/TikTok link yuboring",
+                    description="Linkni yozing va natijani tanlang",
+                    input_message_content=InputTextMessageContent(
+                        "📎 Instagram yoki TikTok havolasini yuboring.\n@InstaDownloader_uzBot"
+                    ),
+                )
+            ],
+            cache_time=10
+        )
+        return
+
+    url, platform = extract_any_url(query)
+
+    if url:
+        await inline_query.answer(
+            results=[
+                InlineQueryResultArticle(
+                    title=f"📥 {platform} dan yuklab olish",
+                    description=url[:60],
+                    input_message_content=InputTextMessageContent(url),
+                )
+            ],
+            cache_time=5
+        )
+    else:
+        await inline_query.answer(
+            results=[
+                InlineQueryResultArticle(
+                    title="⚠️ Instagram yoki TikTok link kiriting",
+                    description="Faqat Instagram va TikTok havolalari qabul qilinadi",
+                    input_message_content=InputTextMessageContent(
+                        "⚠️ Faqat Instagram va TikTok havolalarini qabul qilaman.\n@InstaDownloader_uzBot"
+                    ),
+                )
+            ],
+            cache_time=10
+        )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -881,14 +1051,11 @@ async def callback_audio(client, callback: CallbackQuery):
 # ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    # Flask ni avval ishga tushiramiz — Render port bind ni kutadi
-    t = threading.Thread(target=run_flask, daemon=True)
-    t.start()
-    logger.info("✅ Flask server ishga tushdi (port bind qilindi)")
+    t_flask = threading.Thread(target=run_flask, daemon=True)
+    t_flask.start()
+    logger.info("✅ Flask server ishga tushdi")
 
-    # Biroz kutamiz — port to'liq ochilsin
-    import time
-    time.sleep(1)
+    _time.sleep(1)
 
     logger.info("✅ InstaBot ishga tushmoqda...")
     app.run()
