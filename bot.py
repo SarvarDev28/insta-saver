@@ -797,12 +797,10 @@ def _cleanup_pending():
     """Eskirgan pending_urls va pending_music yozuvlarini tozalash"""
     import time as _time
     now = _time.time()
-    # pending_music tozalash
     expired = [k for k, v in pending_music.items()
                if isinstance(v, dict) and now - v.get("time", 0) > PENDING_MAX_AGE]
     for k in expired:
         del pending_music[k]
-    # pending_urls — eng ko'pi 500 ta saqlash
     if len(pending_urls) > 500:
         keys = list(pending_urls.keys())
         for k in keys[:len(keys) - 200]:
@@ -811,7 +809,7 @@ def _cleanup_pending():
 
 @app.on_callback_query(filters.regex(r"^audio\|"))
 async def callback_audio(client, callback: CallbackQuery):
-    """🎵 Musiqani yuklab olish — SoundCloud dan qidirib 5 ta natija ko'rsatish"""
+    """🎵 Musiqani yuklab olish — YouTube Music dan qidirib 5 ta natija ko'rsatish"""
     import time as _time
 
     msg_id = int(callback.data.split("|")[1])
@@ -825,10 +823,8 @@ async def callback_audio(client, callback: CallbackQuery):
 
     await callback.answer("🎵 Musiqa qidirilmoqda...", show_alert=False)
 
-    # Eskirganlarni tozalash
     _cleanup_pending()
 
-    # Instagram dan musiqa nomini olish
     loop = asyncio.get_running_loop()
     track_name = ""
 
@@ -923,30 +919,52 @@ async def callback_audio(client, callback: CallbackQuery):
             cleanup(chat_id)
         return
 
-    # SoundCloud dan qidirish (5 ta natija)
+    # YouTube Music dan qidirish (ytmusicapi — 5 ta natija)
     try:
-        def _search_soundcloud():
-            ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
-                "socket_timeout": 20,
-                "skip_download": True,
-                "extract_flat": True,
-                "no_check_certificates": True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                results = ydl.extract_info(f"scsearch5:{track_name}", download=False)
-                if results and "entries" in results:
-                    return results["entries"]
-            return []
+        def _search_ytmusic():
+            from ytmusicapi import YTMusic
+            ytm = YTMusic()
+            results = ytm.search(track_name, filter="songs", limit=5)
+            entries = []
+            for item in results[:5]:
+                video_id = item.get("videoId")
+                if not video_id:
+                    continue
+                title = item.get("title", "Noma'lum")
+                artists = item.get("artists", [])
+                artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
+                duration_text = item.get("duration", "")
+                # duration_seconds hisoblash
+                dur_seconds = 0
+                if item.get("duration_seconds"):
+                    dur_seconds = item["duration_seconds"]
+                elif duration_text:
+                    parts = duration_text.split(":")
+                    try:
+                        if len(parts) == 2:
+                            dur_seconds = int(parts[0]) * 60 + int(parts[1])
+                        elif len(parts) == 3:
+                            dur_seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                    except ValueError:
+                        pass
 
-        entries = await loop.run_in_executor(None, _search_soundcloud)
+                entries.append({
+                    "title": title,
+                    "artist": artist_name,
+                    "video_id": video_id,
+                    "url": f"https://music.youtube.com/watch?v={video_id}",
+                    "duration": dur_seconds,
+                    "duration_text": duration_text,
+                })
+            return entries
+
+        entries = await loop.run_in_executor(None, _search_ytmusic)
     except Exception:
         entries = []
 
     if not entries:
-        # SoundCloud topilmasa — Instagram videodan audio ajratib berish
-        status = await callback.message.reply("🎵 SoundCloud da topilmadi. Instagram dan audio ajratilmoqda...")
+        # Topilmasa — Instagram videodan audio ajratib berish
+        status = await callback.message.reply("🎵 Musiqa topilmadi. Instagram dan audio ajratilmoqda...")
         files, error = await download_audio(url, chat_id)
         if error:
             await status.edit_text(error)
@@ -976,35 +994,31 @@ async def callback_audio(client, callback: CallbackQuery):
         return
 
     # 5 ta natijani ko'rsatish
-    text = f"🎵 **{track_name}**\n\n🔎 SoundCloud natijalari:\n\n"
+    text = f"🎵 **{track_name}**\n\n🔎 YouTube Music natijalari:\n\n"
     search_results = []
     for i, entry in enumerate(entries[:5], 1):
-        title = entry.get("title", "Noma'lum")
-        duration = entry.get("duration")
-        dur_str = ""
-        if duration:
-            minutes = int(duration) // 60
-            seconds = int(duration) % 60
-            dur_str = f" [{minutes}:{seconds:02d}]"
-        text += f"{i}. 🎶 {title}{dur_str}\n"
+        title = entry["title"]
+        artist = entry.get("artist", "")
+        dur_text = entry.get("duration_text", "")
+        display = f"{artist} — {title}" if artist else title
+        dur_str = f" [{dur_text}]" if dur_text else ""
+        text += f"{i}. 🎶 {display}{dur_str}\n"
         search_results.append({
-            "url": entry.get("url") or entry.get("webpage_url") or "",
-            "title": title,
+            "url": entry["url"],
+            "video_id": entry["video_id"],
+            "title": display,
         })
 
     text += "\n💡 Raqamni tanlang yoki Instagram dan audio ajrating."
 
-    # Natijalarni xotiraga saqlash (vaqt bilan)
     pending_music[msg_id] = {"results": search_results, "time": _time.time()}
 
     # Tugmalar yaratish
     buttons = []
-    # Raqamli tugmalar
     num_buttons = []
     for i in range(min(5, len(search_results))):
         num_buttons.append(InlineKeyboardButton(f"{i+1} 🎶", callback_data=f"ms|{msg_id}|{i}"))
     buttons.append(num_buttons)
-    # Instagram dan audio ajratish tugmasi
     buttons.append([InlineKeyboardButton("🎬 Instagram audio", callback_data=f"msvid|{msg_id}")])
 
     await callback.message.reply(
@@ -1015,7 +1029,7 @@ async def callback_audio(client, callback: CallbackQuery):
 
 @app.on_callback_query(filters.regex(r"^ms\|"))
 async def callback_music_select(client, callback: CallbackQuery):
-    """Musiqa raqami tanlanganda — SoundCloud dan yuklab yuborish"""
+    """Musiqa raqami tanlanganda — YouTube Music dan yuklab yuborish"""
     parts = callback.data.split("|")
     msg_id = int(parts[1])
     index = int(parts[2])
@@ -1043,13 +1057,13 @@ async def callback_music_select(client, callback: CallbackQuery):
 
     await callback.answer("🎵 Yuklanmoqda...", show_alert=False)
 
-    status = await callback.message.reply("🎵 SoundCloud dan yuklanmoqda...")
+    status = await callback.message.reply("🎵 Yuklanmoqda...")
 
     try:
         loop = asyncio.get_running_loop()
-        output_template = str(DOWNLOAD_DIR / f"{chat_id}_audio_%(id)s.%(ext)s")
+        output_template = str(DOWNLOAD_DIR / f"{chat_id}_music_%(id)s.%(ext)s")
 
-        def _download_from_soundcloud():
+        def _download_from_ytmusic():
             ydl_opts = {
                 "outtmpl": output_template,
                 "format": "bestaudio/best",
@@ -1065,7 +1079,7 @@ async def callback_music_select(client, callback: CallbackQuery):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.extract_info(music_url, download=True)
 
-        await loop.run_in_executor(None, _download_from_soundcloud)
+        await loop.run_in_executor(None, _download_from_ytmusic)
 
         files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
 
@@ -1078,13 +1092,13 @@ async def callback_music_select(client, callback: CallbackQuery):
             if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
                 await callback.message.reply_audio(
                     str(filepath),
-                    caption=f"🎵 {title}\n🔊 SoundCloud\n@InstaDownloader_uzBot",
+                    caption=f"🎵 {title}\n@InstaDownloader_uzBot",
                     title=title
                 )
             else:
                 await callback.message.reply_document(
                     str(filepath),
-                    caption=f"🎵 {title}\n🔊 SoundCloud\n@InstaDownloader_uzBot"
+                    caption=f"🎵 {title}\n@InstaDownloader_uzBot"
                 )
 
         await status.delete()
@@ -1106,7 +1120,6 @@ async def callback_music_video(client, callback: CallbackQuery):
         await callback.answer("⚠️ Link eskirgan.", show_alert=True)
         return
 
-    # Track nomini olish (agar mavjud bo'lsa)
     music_data = pending_music.get(msg_id)
     title = "Instagram Audio"
     if music_data and isinstance(music_data, dict):
@@ -1120,7 +1133,7 @@ async def callback_music_video(client, callback: CallbackQuery):
 
     try:
         loop = asyncio.get_running_loop()
-        output_template = str(DOWNLOAD_DIR / f"{chat_id}_audio.%(ext)s")
+        output_template = str(DOWNLOAD_DIR / f"{chat_id}_instaudio.%(ext)s")
 
         def _download_instagram_audio():
             ydl_opts = {
