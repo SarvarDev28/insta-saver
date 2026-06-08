@@ -76,21 +76,20 @@ TEXTS = {
     "uz": {
         "start": (
             "👋 Salom, **{name}**!\n\n"
-            "📥 Men **Instagram & TikTok Saver** botman.\n\n"
+            "📥 Men **Instagram Saver** botman.\n\n"
             "📌 Nima yuklay olaman:\n"
-            "• 🎬 Instagram Reels (video/audio)\n"
-            "• 🖼 Instagram Postlar (rasm/video)\n"
-            "• 📖 Instagram Stories\n"
-            "• 🎵 TikTok videolar\n\n"
+            "• 🎬 Reels (video/audio)\n"
+            "• 🖼 Postlar (rasm/video)\n"
+            "• 📖 Stories\n\n"
             "🎯 **Buyruqlar:**\n"
             "• /favorites — Sevimlilar\n"
             "• /help — Qo'llanma\n"
             "• /lang — Tilni o'zgartirish\n\n"
-            "➡️ Instagram yoki TikTok havolasini yuboring!"
+            "➡️ Instagram havolasini yuboring!"
         ),
         "help": (
             "📖 **Qo'llanma:**\n\n"
-            "1️⃣ Instagram/TikTok da post/reel ni oching\n"
+            "1️⃣ Instagram da post/reel/story ni oching\n"
             "2️⃣ Havolasini nusxalang\n"
             "3️⃣ Menga yuboring\n"
             "4️⃣ Yuklanib keladi ✅\n\n"
@@ -107,8 +106,8 @@ TEXTS = {
         ),
         "lang_choose": "🌐 **Tilni tanlang / Choose language / Выберите язык:**",
         "lang_set": "✅ Til o'zgartirildi: **O'zbekcha** 🇺🇿",
-        "send_link": "📎 Instagram yoki TikTok havolasini yuboring.",
-        "only_insta_tiktok": "⚠️ Faqat **Instagram** va **TikTok** havolalarini qabul qilaman.",
+        "send_link": "📎 Instagram havolasini yuboring.",
+        "only_insta_tiktok": "⚠️ Faqat **Instagram** havolalarini qabul qilaman.",
         "favorites_empty": "⭐ **Sevimlilar ro'yxati bo'sh.**\n\nHavola yuboring va \"⭐\" tugmasini bosing!",
         "favorites_title": "⭐ **Sevimlilar:**\n\n",
         "downloading": "⬇️ Yuklab olinmoqda...",
@@ -141,21 +140,20 @@ TEXTS = {
     "en": {
         "start": (
             "👋 Hello, **{name}**!\n\n"
-            "📥 I'm an **Instagram & TikTok Saver** bot.\n\n"
+            "📥 I'm an **Instagram Saver** bot.\n\n"
             "📌 What I can download:\n"
             "• 🎬 Instagram Reels (video/audio)\n"
             "• 🖼 Instagram Posts (photo/video)\n"
-            "• 📖 Instagram Stories\n"
-            "• 🎵 TikTok videos\n\n"
+            "• 📖 Instagram Stories\n\n"
             "🎯 **Commands:**\n"
             "• /favorites — Favorites\n"
             "• /help — Guide\n"
             "• /lang — Change language\n\n"
-            "➡️ Send an Instagram or TikTok link!"
+            "➡️ Send an Instagram link!"
         ),
         "help": (
             "📖 **Guide:**\n\n"
-            "1️⃣ Open a post/reel on Instagram/TikTok\n"
+            "1️⃣ Open a post/reel/story on Instagram\n"
             "2️⃣ Copy the link\n"
             "3️⃣ Send it to me\n"
             "4️⃣ Download will be ready ✅\n\n"
@@ -172,8 +170,8 @@ TEXTS = {
         ),
         "lang_choose": "🌐 **Tilni tanlang / Choose language / Выберите язык:**",
         "lang_set": "✅ Language changed: **English** 🇬🇧",
-        "send_link": "📎 Send an Instagram or TikTok link.",
-        "only_insta_tiktok": "⚠️ I only accept **Instagram** and **TikTok** links.",
+        "send_link": "📎 Send an Instagram link.",
+        "only_insta_tiktok": "⚠️ I only accept **Instagram** links.",
         "favorites_empty": "⭐ **Favorites list is empty.**\n\nSend a link and tap the \"⭐\" button!",
         "favorites_title": "⭐ **Favorites:**\n\n",
         "downloading": "⬇️ Downloading...",
@@ -206,21 +204,20 @@ TEXTS = {
     "ru": {
         "start": (
             "👋 Привет, **{name}**!\n\n"
-            "📥 Я бот **Instagram & TikTok Saver**.\n\n"
+            "📥 Я бот **Instagram Saver**.\n\n"
             "📌 Что я могу скачать:\n"
             "• 🎬 Instagram Reels (видео/аудио)\n"
             "• 🖼 Instagram Посты (фото/видео)\n"
-            "• 📖 Instagram Stories\n"
-            "• 🎵 TikTok видео\n\n"
+            "• 📖 Instagram Stories\n\n"
             "🎯 **Команды:**\n"
             "• /favorites — Избранное\n"
             "• /help — Инструкция\n"
             "• /lang — Сменить язык\n\n"
-            "➡️ Отправьте ссылку Instagram или TikTok!"
+            "➡️ Отправьте ссылку Instagram!"
         ),
         "help": (
             "📖 **Инструкция:**\n\n"
-            "1️⃣ Откройте пост/рилс в Instagram/TikTok\n"
+            "1️⃣ Откройте пост/рилс/сторис в Instagram\n"
             "2️⃣ Скопируйте ссылку\n"
             "3️⃣ Отправьте мне\n"
             "4️⃣ Скачается ✅\n\n"
@@ -237,8 +234,8 @@ TEXTS = {
         ),
         "lang_choose": "🌐 **Tilni tanlang / Choose language / Выберите язык:**",
         "lang_set": "✅ Язык изменён: **Русский** 🇷🇺",
-        "send_link": "📎 Отправьте ссылку Instagram или TikTok.",
-        "only_insta_tiktok": "⚠️ Я принимаю только ссылки **Instagram** и **TikTok**.",
+        "send_link": "📎 Отправьте ссылку Instagram.",
+        "only_insta_tiktok": "⚠️ Я принимаю только ссылки **Instagram**.",
         "favorites_empty": "⭐ **Список избранного пуст.**\n\nОтправьте ссылку и нажмите \"⭐\"!",
         "favorites_title": "⭐ **Избранное:**\n\n",
         "downloading": "⬇️ Скачиваю...",
@@ -387,7 +384,7 @@ def get_favorites(user_id: int) -> list:
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔗 HAVOLA ANIQLAGICH (Instagram + TikTok)
+# 🔗 HAVOLA ANIQLAGICH
 # ═══════════════════════════════════════════════════════════
 
 def extract_instagram_url(text: str) -> str | None:
@@ -396,20 +393,11 @@ def extract_instagram_url(text: str) -> str | None:
     return match.group(0) if match else None
 
 
-def extract_tiktok_url(text: str) -> str | None:
-    pattern = r'https?://(?:www\.|vm\.|vt\.)?(?:tiktok\.com)/[^\s\'"<>]+'
-    match = re.search(pattern, text)
-    return match.group(0) if match else None
-
-
 def extract_any_url(text: str) -> tuple[str | None, str]:
-    """Returns (url, platform) — platform: 'instagram' or 'tiktok'"""
+    """Returns (url, platform)"""
     url = extract_instagram_url(text)
     if url:
         return url, "Instagram"
-    url = extract_tiktok_url(text)
-    if url:
-        return url, "TikTok"
     return None, ""
 
 
@@ -915,7 +903,7 @@ async def callback_favorite(client, callback: CallbackQuery):
 
 @app.on_callback_query(filters.regex(r"^audio\|"))
 async def callback_audio(client, callback: CallbackQuery):
-    """Instagram/TikTok videodan audio ajratib MP3 qilib yuborish"""
+    """Instagram videodan audio ajratib MP3 qilib yuborish"""
     msg_id = int(callback.data.split("|")[1])
     uid = callback.from_user.id
     chat_id = callback.message.chat.id
@@ -959,7 +947,7 @@ async def callback_audio(client, callback: CallbackQuery):
                             ti = info.get("title") or ""
                             if track:
                                 return f"{artist} — {track}" if artist else track
-                            generic = ["instagram", "reel", "video", "post", "tiktok"]
+                            generic = ["instagram", "reel", "video", "post"]
                             if ti and not any(g in ti.lower() for g in generic):
                                 return ti
                 except Exception:
@@ -1007,10 +995,10 @@ async def handle_inline(client, inline_query: InlineQuery):
         await inline_query.answer(
             results=[
                 InlineQueryResultArticle(
-                    title="📥 Instagram/TikTok link yuboring",
+                    title="📥 Instagram link yuboring",
                     description="Linkni yozing va natijani tanlang",
                     input_message_content=InputTextMessageContent(
-                        "📎 Instagram yoki TikTok havolasini yuboring.\n@InstaDownloader_uzBot"
+                        "📎 Instagram havolasini yuboring.\n@InstaDownloader_uzBot"
                     ),
                 )
             ],
@@ -1035,10 +1023,10 @@ async def handle_inline(client, inline_query: InlineQuery):
         await inline_query.answer(
             results=[
                 InlineQueryResultArticle(
-                    title="⚠️ Instagram yoki TikTok link kiriting",
-                    description="Faqat Instagram va TikTok havolalari qabul qilinadi",
+                    title="⚠️ Instagram link kiriting",
+                    description="Faqat Instagram havolalari qabul qilinadi",
                     input_message_content=InputTextMessageContent(
-                        "⚠️ Faqat Instagram va TikTok havolalarini qabul qilaman.\n@InstaDownloader_uzBot"
+                        "⚠️ Faqat Instagram havolalarini qabul qilaman.\n@InstaDownloader_uzBot"
                     ),
                 )
             ],
