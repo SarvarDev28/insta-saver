@@ -1057,6 +1057,23 @@ async def handle_inline(client, inline_query: InlineQuery):
 # 🚀 BOTNI ISHGA TUSHIRISH
 # ═══════════════════════════════════════════════════════════
 
+async def set_bot_menu():
+    """Bot menu (commands) ni sozlash"""
+    from pyrogram.types import BotCommand
+
+    commands = [
+        BotCommand("start", "Botni ishga tushirish"),
+        BotCommand("help", "Qo'llanma"),
+        BotCommand("lang", "Tilni o'zgartirish"),
+        BotCommand("favorites", "Sevimlilar ro'yxati"),
+    ]
+    try:
+        await app.set_bot_commands(commands)
+        logger.info("✅ Bot menu sozlandi")
+    except Exception as e:
+        logger.warning(f"⚠️ Menu sozlab bo'lmadi: {e}")
+
+
 if __name__ == "__main__":
     t_flask = threading.Thread(target=run_flask, daemon=True)
     t_flask.start()
@@ -1065,4 +1082,11 @@ if __name__ == "__main__":
     _time.sleep(1)
 
     logger.info("✅ InstaBot ishga tushmoqda...")
-    app.run()
+
+    async def main():
+        await app.start()
+        await set_bot_menu()
+        logger.info("✅ Bot menu o'rnatildi. Bot ishlayapti...")
+        await asyncio.Event().wait()  # Cheksiz kutish
+
+    asyncio.get_event_loop().run_until_complete(main())
