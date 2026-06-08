@@ -721,7 +721,7 @@ async def handle_message(client, message: Message):
             await message.reply(t(uid, "banned_msg"))
         return
 
-    # Havola aniqlash (Instagram + TikTok)
+    # Havola aniqlash
     url, platform = extract_any_url(text)
 
     if is_group:
@@ -734,12 +734,6 @@ async def handle_message(client, message: Message):
             else:
                 await message.reply(t(uid, "send_link"))
             return
-
-    # Kanal obuna tekshirish
-    if not await check_subscription(client, uid):
-        channel_display = CHANNEL_ID if CHANNEL_ID.startswith("@") else f"@{CHANNEL_ID}"
-        await message.reply(t(uid, "subscribe_channel", channel=channel_display))
-        return
 
     save_user(uid)
 
