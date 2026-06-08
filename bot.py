@@ -576,6 +576,21 @@ def get_error_text(user_id: int, error: str) -> str:
 async def cmd_start(client, message: Message):
     user = message.from_user
     save_user(user.id)
+
+    # Birinchi marta — til tanlash
+    if r and not r.get(f"lang:{user.id}"):
+        await message.reply(
+            "🌐 **Tilni tanlang / Choose language / Выберите язык:**",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="startlang|uz"),
+                    InlineKeyboardButton("🇬🇧 English", callback_data="startlang|en"),
+                    InlineKeyboardButton("🇷🇺 Русский", callback_data="startlang|ru"),
+                ]
+            ])
+        )
+        return
+
     await message.reply(t(user.id, "start", name=user.first_name))
 
 
@@ -876,10 +891,20 @@ async def handle_message(client, message: Message):
 
 @app.on_callback_query(filters.regex(r"^lang\|"))
 async def callback_lang(client, callback: CallbackQuery):
-    """Til tanlash tugmasi"""
+    """Til tanlash tugmasi (/lang buyrug'idan)"""
     lang = callback.data.split("|")[1]
     set_user_lang(callback.from_user.id, lang)
     await callback.message.edit_text(t(callback.from_user.id, "lang_set"))
+
+
+@app.on_callback_query(filters.regex(r"^startlang\|"))
+async def callback_startlang(client, callback: CallbackQuery):
+    """Birinchi marta /start da til tanlash — keyin start xabari ko'rsatiladi"""
+    lang = callback.data.split("|")[1]
+    uid = callback.from_user.id
+    set_user_lang(uid, lang)
+    name = callback.from_user.first_name
+    await callback.message.edit_text(t(uid, "start", name=name))
 
 
 @app.on_callback_query(filters.regex(r"^fav\|"))
