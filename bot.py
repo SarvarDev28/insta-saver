@@ -460,18 +460,10 @@ async def download_video(url: str, chat_id: int):
     output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
-        "format": "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc]/best[ext=mp4]/best",
-        "merge_output_format": "mp4",
+        "format": "best[ext=mp4]/best",
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
-        "postprocessors": [{
-            "key": "FFmpegVideoConvertor",
-            "preferedformat": "mp4",
-        }],
-        "postprocessor_args": {
-            "FFmpegVideoConvertor": ["-c:v", "libx264", "-c:a", "aac", "-movflags", "+faststart"]
-        },
     }
     if _cookie_path:
         ydl_opts["cookiefile"] = _cookie_path
