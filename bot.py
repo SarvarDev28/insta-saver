@@ -19,6 +19,8 @@ from pyrogram.types import (
     InlineQuery,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    InputMediaPhoto,
+    InputMediaVideo,
 )
 from pyrogram.enums import ChatType, ChatMemberStatus
 
@@ -609,6 +611,93 @@ def get_error_text(user_id: int, error: str) -> str:
     return t(user_id, "download_error")
 
 
+async def send_media_files(message, files, caption, uid, msg_id, url):
+    """Fayllarni yuborish:
+    - Bitta fayl bo'lsa — tugmalar bilan oddiy yuboradi
+    - Bir nechta bo'lsa — media group (albom) qilib bittada yuboradi, keyin tugma alohida
+    """
+    PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+    VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm"}
+
+    media_files = [f for f in files if f.suffix.lower() in (PHOTO_EXTS | VIDEO_EXTS)]
+    other_files = [f for f in files if f.suffix.lower() not in (PHOTO_EXTS | VIDEO_EXTS)]
+
+    # ─── Bir nechta media — ALBOM qilib yuborish ───
+    if len(media_files) > 1:
+        media_group = []
+        for i, filepath in enumerate(media_files[:10]):  # Telegram limit: 10 ta
+            ext = filepath.suffix.lower()
+            cap = caption if i == 0 else None  # Faqat birinchisida caption
+            if ext in PHOTO_EXTS:
+                media_group.append(InputMediaPhoto(str(filepath), caption=cap))
+            else:
+                media_group.append(InputMediaVideo(str(filepath), caption=cap, supports_streaming=True))
+
+        try:
+            await message.reply_media_group(media_group)
+            # Albomdan keyin tugmalarni alohida xabar bilan yuborish
+            has_video = any(f.suffix.lower() in VIDEO_EXTS for f in media_files)
+            buttons = [[InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")]]
+            if has_video:
+                buttons.append([InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{msg_id}")])
+            await message.reply(
+                "✅ " + str(len(media_files)) + " ta media yuklandi\n@InstaDownloader_uzBot",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+        except Exception:
+            # Albom ishlamasa — bitta-bitta yuborish
+            for filepath in media_files:
+                ext = filepath.suffix.lower()
+                if ext in PHOTO_EXTS:
+                    await message.reply_photo(str(filepath), caption=caption)
+                else:
+                    await message.reply_video(str(filepath), caption=caption, supports_streaming=True)
+        # Boshqa fayllar (agar bo'lsa)
+        for filepath in other_files:
+            await message.reply_document(str(filepath), caption=caption)
+        return
+
+    # ─── Bitta media — oddiy yuborish (tugmalar bilan) ───
+    for filepath in files:
+        ext = filepath.suffix.lower()
+        if ext in VIDEO_EXTS:
+            try:
+                sent = await message.reply_video(
+                    str(filepath),
+                    caption=caption,
+                    supports_streaming=True,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")],
+                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{msg_id}")]
+                    ])
+                )
+                set_cache(url, "video", {"type": "video", "file_id": sent.video.file_id})
+            except Exception:
+                sent = await message.reply_document(
+                    str(filepath),
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")],
+                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{msg_id}")]
+                    ])
+                )
+                set_cache(url, "video", {"type": "document", "file_id": sent.document.file_id})
+        elif ext in PHOTO_EXTS:
+            try:
+                sent = await message.reply_photo(
+                    str(filepath),
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")]
+                    ])
+                )
+                set_cache(url, "photo", {"type": "photo", "file_id": sent.photo.file_id})
+            except Exception:
+                await message.reply_document(str(filepath), caption=caption)
+        else:
+            await message.reply_document(str(filepath), caption=caption)
+
+
 # ═══════════════════════════════════════════════════════════
 # 🤖 BOT KOMANDALAR
 # ═══════════════════════════════════════════════════════════
@@ -915,36 +1004,7 @@ async def handle_message(client, message: Message):
             await show_progress(status, 4)
 
             try:
-                for filepath in files:
-                    ext = filepath.suffix.lower()
-                    if ext in [".jpg", ".jpeg", ".png", ".webp"]:
-                        try:
-                            sent = await message.reply_photo(
-                                str(filepath),
-                                caption=caption,
-                                reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")]
-                                ])
-                            )
-                            set_cache(url, "photo", {"type": "photo", "file_id": sent.photo.file_id})
-                        except Exception:
-                            await message.reply_document(str(filepath), caption=caption)
-                    elif ext in [".mp4", ".mov", ".mkv", ".webm"]:
-                        try:
-                            sent = await message.reply_video(
-                                str(filepath),
-                                caption=caption,
-                                supports_streaming=True,
-                                reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
-                                    [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
-                                ])
-                            )
-                        except Exception:
-                            await message.reply_document(str(filepath), caption=caption)
-                    else:
-                        await message.reply_document(str(filepath), caption=caption)
-
+                await send_media_files(message, files, caption, uid, message.id, url)
                 pending_urls[message.id] = url
                 await status.delete()
             except Exception as e:
@@ -969,44 +1029,7 @@ async def handle_message(client, message: Message):
     caption = t(uid, "caption_speed", platform=platform, seconds=elapsed)
 
     try:
-        for filepath in files:
-            ext = filepath.suffix.lower()
-            if ext in [".mp4", ".mov", ".mkv", ".webm"]:
-                try:
-                    sent = await message.reply_video(
-                        str(filepath),
-                        caption=caption,
-                        supports_streaming=True,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
-                            [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
-                        ])
-                    )
-                    set_cache(url, "video", {"type": "video", "file_id": sent.video.file_id})
-                except Exception:
-                    sent = await message.reply_document(
-                        str(filepath),
-                        caption=caption,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
-                            [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
-                        ])
-                    )
-                    set_cache(url, "video", {"type": "document", "file_id": sent.document.file_id})
-            elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
-                try:
-                    sent = await message.reply_photo(
-                        str(filepath),
-                        caption=caption,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")]
-                        ])
-                    )
-                except Exception:
-                    await message.reply_document(str(filepath), caption=caption)
-            else:
-                await message.reply_document(str(filepath), caption=caption)
-
+        await send_media_files(message, files, caption, uid, message.id, url)
         pending_urls[message.id] = url
         await status.delete()
 
