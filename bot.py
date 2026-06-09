@@ -462,13 +462,18 @@ async def download_video(url: str, chat_id: int):
     output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
+        # H.264 (avc) kodekni afzal ko'rish — Telegram telefon pleyeri uchun
+        "format": (
+            "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
+            "best[ext=mp4][vcodec^=avc1]/"
+            "best[ext=mp4]/best"
+        ),
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
         "postprocessor_args": {
-            "merger": ["-c", "copy"]
+            "merger": ["-c", "copy", "-movflags", "+faststart"]
         },
     }
     if _cookie_path:
