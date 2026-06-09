@@ -460,10 +460,14 @@ async def download_video(url: str, chat_id: int):
     output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
-        "format": "best[ext=mp4]/best",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
+        "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
+        "postprocessor_args": {
+            "merger": ["-c", "copy"]
+        },
     }
     if _cookie_path:
         ydl_opts["cookiefile"] = _cookie_path
