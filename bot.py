@@ -805,6 +805,50 @@ async def handle_message(client, message: Message):
     except Exception:
         pass
 
+    # 💾 CACHE TEKSHIRISH — avval yuklangan bo'lsa darhol yuborish
+    cached_video = get_cache(url, "video")
+    cached_photo = get_cache(url, "photo")
+
+    if cached_video:
+        try:
+            if cached_video["type"] == "video":
+                await message.reply_video(
+                    cached_video["file_id"],
+                    caption=t(uid, "caption_speed", platform=platform, seconds="0.1"),
+                    supports_streaming=True,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
+                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
+                    ])
+                )
+            elif cached_video["type"] == "document":
+                await message.reply_document(
+                    cached_video["file_id"],
+                    caption=t(uid, "caption_speed", platform=platform, seconds="0.1"),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
+                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")]
+                    ])
+                )
+            pending_urls[message.id] = url
+            return
+        except Exception:
+            pass
+
+    if cached_photo:
+        try:
+            await message.reply_photo(
+                cached_photo["file_id"],
+                caption=t(uid, "caption_speed", platform=platform, seconds="0.1"),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")]
+                ])
+            )
+            pending_urls[message.id] = url
+            return
+        except Exception:
+            pass
+
     # Vaqtni boshlash (tezlik uchun)
     start_time = _time.time()
 
