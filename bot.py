@@ -1267,7 +1267,7 @@ async def callback_audio_effect(client, callback: CallbackQuery):
 
     await callback.answer(f"{effect['name']} qo'shilmoqda...", show_alert=False)
 
-    status = await callback.message.reply(f"🎚 {effect['name']} qo'shilmoqda...")
+    status = await callback.message.reply(f"{effect['name']} qo'shilmoqda...")
 
     try:
         files, error = await download_audio_with_effect(url, chat_id, effect["filter"])
