@@ -1200,26 +1200,50 @@ AUDIO_EFFECTS = {
 
 
 async def download_audio_with_effect(url: str, chat_id: int, effect_filter: str):
-    """Audio ni yuklab, FFmpeg filtri bilan effekt qo'shish (320kbps sifatda)"""
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_fx_%(title).40s.%(ext)s")
-    ydl_opts = {
-        "outtmpl": output_template,
-        "format": "bestaudio/best",
-        "quiet": True,
-        "no_warnings": True,
-        "socket_timeout": 30,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "320",
-        }],
-        "postprocessor_args": {
-            "ffmpeg": ["-af", effect_filter, "-b:a", "320k"]
-        },
-    }
-    if _cookie_path:
-        ydl_opts["cookiefile"] = _cookie_path
-    return await _execute_download(url, chat_id, ydl_opts)
+    """Audio ni yuklab, keyin alohida FFmpeg bilan effekt qo'shish (320kbps sifatda)"""
+    # 1-bosqich: oddiy audio yuklab olish
+    files, error = await download_audio(url, chat_id)
+    if error:
+        return None, error
+    if not files:
+        return None, "not_found"
+
+    # 2-bosqich: FFmpeg bilan effekt qo'shish (alohida jarayon)
+    loop = asyncio.get_running_loop()
+
+    def _apply_effect():
+        import subprocess
+        out_files = []
+        for src in files:
+            if src.suffix.lower() not in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
+                continue
+            dst = DOWNLOAD_DIR / f"{chat_id}_fx_{src.stem}.mp3"
+            cmd = [
+                "ffmpeg", "-y", "-i", str(src),
+                "-af", effect_filter,
+                "-b:a", "320k",
+                str(dst),
+            ]
+            try:
+                subprocess.run(cmd, check=True,
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+                try:
+                    src.unlink()
+                except Exception:
+                    pass
+                out_files.append(dst)
+            except Exception:
+                pass
+        return out_files
+
+    try:
+        fx_files = await loop.run_in_executor(None, _apply_effect)
+        if fx_files:
+            return fx_files, None
+        return None, "❌ Effekt qo'shib bo'lmadi."
+    except Exception as e:
+        return None, f"❌ `{str(e)[:100]}`"
 
 
 @app.on_callback_query(filters.regex(r"^fx\|"))
