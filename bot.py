@@ -1148,12 +1148,126 @@ async def callback_audio(client, callback: CallbackQuery):
                 await callback.message.reply_audio(
                     str(filepath),
                     caption=f"🎵 {title} | ⚡ {elapsed}s\n@InstaDownloader_uzBot",
-                    title=title
+                    title=title,
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("🎧 8D", callback_data=f"fx|8d|{msg_id}"),
+                            InlineKeyboardButton("🐢 Slowed", callback_data=f"fx|slow|{msg_id}"),
+                        ],
+                        [
+                            InlineKeyboardButton("🔊 Bass", callback_data=f"fx|bass|{msg_id}"),
+                            InlineKeyboardButton("🏛 Reverb", callback_data=f"fx|reverb|{msg_id}"),
+                        ],
+                    ])
                 )
             else:
                 await callback.message.reply_document(
                     str(filepath),
                     caption=f"🎵 {title}\n@InstaDownloader_uzBot"
+                )
+
+        await status.delete()
+
+    except Exception as e:
+        await status.edit_text(f"❌ `{str(e)[:100]}`")
+    finally:
+        cleanup(chat_id)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🎚 AUDIO EFFEKTLAR (8D, Slowed, Bass, Reverb)
+# ═══════════════════════════════════════════════════════════
+
+# FFmpeg filtrlar — sifatli (320kbps)
+AUDIO_EFFECTS = {
+    "8d": {
+        "name": "🎧 8D Audio",
+        "filter": "apulsator=hz=0.08",
+    },
+    "slow": {
+        "name": "🐢 Slowed + Reverb",
+        "filter": "asetrate=44100*0.85,aresample=44100,aecho=0.8:0.88:60:0.4",
+    },
+    "bass": {
+        "name": "🔊 Bass Boost",
+        "filter": "bass=g=12:f=110:w=0.6",
+    },
+    "reverb": {
+        "name": "🏛 Reverb (Concert Hall)",
+        "filter": "aecho=0.8:0.9:1000:0.3",
+    },
+}
+
+
+async def download_audio_with_effect(url: str, chat_id: int, effect_filter: str):
+    """Audio ni yuklab, FFmpeg filtri bilan effekt qo'shish (320kbps sifatda)"""
+    output_template = str(DOWNLOAD_DIR / f"{chat_id}_fx_%(title).40s.%(ext)s")
+    ydl_opts = {
+        "outtmpl": output_template,
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "320",
+        }],
+        "postprocessor_args": {
+            "ffmpeg": ["-af", effect_filter, "-b:a", "320k"]
+        },
+    }
+    if _cookie_path:
+        ydl_opts["cookiefile"] = _cookie_path
+    return await _execute_download(url, chat_id, ydl_opts)
+
+
+@app.on_callback_query(filters.regex(r"^fx\|"))
+async def callback_audio_effect(client, callback: CallbackQuery):
+    """Audio effekt qo'shish — 8D / Slowed / Bass / Reverb"""
+    parts = callback.data.split("|")
+    effect_key = parts[1]
+    msg_id = int(parts[2])
+    uid = callback.from_user.id
+    chat_id = callback.message.chat.id
+    url = pending_urls.get(msg_id)
+
+    if not url:
+        await callback.answer("⚠️ Link eskirgan.", show_alert=True)
+        return
+
+    effect = AUDIO_EFFECTS.get(effect_key)
+    if not effect:
+        await callback.answer("⚠️", show_alert=True)
+        return
+
+    await callback.answer(f"{effect['name']} qo'shilmoqda...", show_alert=False)
+
+    status = await callback.message.reply(f"🎚 {effect['name']} qo'shilmoqda...")
+
+    try:
+        files, error = await download_audio_with_effect(url, chat_id, effect["filter"])
+
+        if error:
+            await status.edit_text(get_error_text(uid, error))
+            return
+
+        if not files:
+            await status.edit_text(t(uid, "download_error"))
+            return
+
+        for filepath in files:
+            ext = filepath.suffix.lower()
+            if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
+                await callback.message.reply_audio(
+                    str(filepath),
+                    caption=f"{effect['name']}\n@InstaDownloader_uzBot",
+                    title=effect["name"]
+                )
+            else:
+                await callback.message.reply_document(
+                    str(filepath),
+                    caption=f"{effect['name']}\n@InstaDownloader_uzBot"
                 )
 
         await status.delete()
