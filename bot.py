@@ -1392,6 +1392,32 @@ def _format_duration(seconds) -> str:
         return ""
 
 
+def _build_song_buttons(results: list, msg_id: int) -> InlineKeyboardMarkup:
+    """Variantlar ro'yxatidan tugmalar yasash"""
+    buttons = []
+    for i, res in enumerate(results):
+        dur = _format_duration(res.get("duration"))
+        label = res["title"][:40]
+        if dur:
+            label = f"{label} • {dur}"
+        buttons.append([InlineKeyboardButton(f"{i + 1}. {label}", callback_data=f"song|{msg_id}|{i}")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def _song_fx_markup(msg_id: int, index: int) -> InlineKeyboardMarkup:
+    """Qo'shiq ostidagi effekt tugmalari (8D / Slowed / Bass / Reverb)"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎧 8D", callback_data=f"fxsong|8d|{msg_id}|{index}"),
+            InlineKeyboardButton("🐢 Slowed", callback_data=f"fxsong|slow|{msg_id}|{index}"),
+        ],
+        [
+            InlineKeyboardButton("🔊 Bass", callback_data=f"fxsong|bass|{msg_id}|{index}"),
+            InlineKeyboardButton("🏛 Reverb", callback_data=f"fxsong|reverb|{msg_id}|{index}"),
+        ],
+    ])
+
+
 async def recognize_song(url: str, chat_id: int):
     """IG havoladan audio yuklab, Shazam orqali qo'shiqni aniqlash.
     Qaytaradi: (query_str, error). query_str — 'Artist - Title' yoki None."""
@@ -1723,6 +1749,20 @@ async def callback_find_song(client, callback: CallbackQuery):
         return
 
     await callback.answer("🔍", show_alert=False)
+
+    # ⚡ CACHE: avval aniqlangan bo'lsa — Shazam/qidiruvsiz darhol variantlarni ko'rsatish
+    cached_meta = get_cache(url, "songmeta")
+    if cached_meta and cached_meta.get("results"):
+        c_query = cached_meta.get("query", "")
+        c_results = cached_meta["results"]
+        song_choices[msg_id] = c_results
+        song_query[msg_id] = c_query
+        await callback.message.reply(
+            t(uid, "song_choose", name=c_query),
+            reply_markup=_build_song_buttons(c_results, msg_id)
+        )
+        return
+
     status = await callback.message.reply(t(uid, "song_recognizing"))
 
     try:
@@ -1746,20 +1786,14 @@ async def callback_find_song(client, callback: CallbackQuery):
             await status.edit_text(t(uid, "song_no_results"))
             return
 
-        # 3) Variantlarni saqlash va tugmalar yasash
+        # 3) Variantlarni saqlash (xotira + Redis kesh) va tugmalar yasash
         song_choices[msg_id] = results
         song_query[msg_id] = query
-        buttons = []
-        for i, res in enumerate(results):
-            dur = _format_duration(res.get("duration"))
-            label = res["title"][:40]
-            if dur:
-                label = f"{label} • {dur}"
-            buttons.append([InlineKeyboardButton(f"{i + 1}. {label}", callback_data=f"song|{msg_id}|{i}")])
+        set_cache(url, "songmeta", {"query": query, "results": results})
 
         await status.edit_text(
             t(uid, "song_choose", name=query),
-            reply_markup=InlineKeyboardMarkup(buttons)
+            reply_markup=_build_song_buttons(results, msg_id)
         )
     except Exception as e:
         await status.edit_text(f"❌ `{str(e)[:100]}`")
@@ -1789,6 +1823,22 @@ async def callback_pick_song(client, callback: CallbackQuery):
     sc_url = chosen["url"]
     query = song_query.get(msg_id, "")
 
+    # ⚡ CACHE: avval yuklangan bo'lsa — file_id orqali darhol yuborish
+    cached_audio = get_cache(sc_url, "scaudio")
+    if cached_audio and cached_audio.get("file_id"):
+        try:
+            await callback.answer("⚡", show_alert=False)
+            c_title = cached_audio.get("title") or chosen.get("title") or query or "Audio"
+            await callback.message.reply_audio(
+                cached_audio["file_id"],
+                caption=f"🎵 {c_title} | ⚡ keshdan | 🟧 SoundCloud\n@InstaDownloader_uzBot",
+                title=c_title,
+                reply_markup=_song_fx_markup(msg_id, index)
+            )
+            return
+        except Exception:
+            pass  # file_id eskirgan bo'lsa — qaytadan yuklaymiz
+
     await callback.answer("⬇️", show_alert=False)
     status = await callback.message.reply(t(uid, "song_downloading"))
 
@@ -1813,17 +1863,14 @@ async def callback_pick_song(client, callback: CallbackQuery):
                     str(filepath),
                     caption=f"🎵 {title} | ⚡ {elapsed}s | 🟧 SoundCloud\n@InstaDownloader_uzBot",
                     title=title,
-                    reply_markup=InlineKeyboardMarkup([
-                        [
-                            InlineKeyboardButton("🎧 8D", callback_data=f"fxsong|8d|{msg_id}|{index}"),
-                            InlineKeyboardButton("🐢 Slowed", callback_data=f"fxsong|slow|{msg_id}|{index}"),
-                        ],
-                        [
-                            InlineKeyboardButton("🔊 Bass", callback_data=f"fxsong|bass|{msg_id}|{index}"),
-                            InlineKeyboardButton("🏛 Reverb", callback_data=f"fxsong|reverb|{msg_id}|{index}"),
-                        ],
-                    ])
+                    reply_markup=_song_fx_markup(msg_id, index)
                 )
+                # ⚡ file_id ni keshlash — keyingi safar darhol kelishi uchun
+                try:
+                    if sent and sent.audio:
+                        set_cache(sc_url, "scaudio", {"file_id": sent.audio.file_id, "title": title})
+                except Exception:
+                    pass
             else:
                 await callback.message.reply_document(
                     str(filepath),
