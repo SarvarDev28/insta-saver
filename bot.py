@@ -1388,16 +1388,14 @@ def _format_duration(seconds) -> str:
 
 
 def _build_song_list_text(uid: int, query: str, results: list) -> str:
-    """Variantlarni raqamlangan matn ro'yxati ko'rinishida tayyorlash"""
+    """Variantlarni raqamlangan matn ro'yxati — har biri bitta qatorda"""
     lines = [t(uid, "song_choose", name=query), ""]
     for i, res in enumerate(results, 1):
         dur = _format_duration(res.get("duration"))
-        uploader = (res.get("uploader") or "").strip()
-        title = (res.get("title") or "Audio")[:70]
+        title = (res.get("title") or "Audio").replace("\n", " ").strip()[:45]
         line = f"**{i}.** {title}"
-        meta = " • ".join(x for x in [uploader[:30], dur] if x)
-        if meta:
-            line += f"\n     _{meta}_"
+        if dur:
+            line += f" • {dur}"
         lines.append(line)
     return "\n".join(lines)
 
