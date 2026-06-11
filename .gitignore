@@ -19,6 +19,11 @@ env/
 *.session
 *.session-journal
 
+# Cookie files (maxfiy — runtime'da env'dan yaratiladi)
+instagram_cookies.txt
+youtube_cookies.txt
+*cookies*.txt
+
 # Downloads folder
 downloads/
 
