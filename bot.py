@@ -193,7 +193,7 @@ TEXTS = {
         "song_recognizing": "🔍 Qo'shiq aniqlanmoqda...",
         "song_not_found": "❌ Qo'shiq aniqlanmadi. Videoda taniqli musiqa topilmadi.",
         "song_recognized": "🎵 Topildi: **{name}**\n\n⬇️ Variantlar qidirilmoqda...",
-        "song_choose": "🎵 **{name}**\n\nQuyidagilardan birini tanlang:",
+        "song_choose": "🎵 **{name}**\n\n👇 Quyidagi variantlardan birini raqamli tugma (1-5) orqali tanlang:",
         "song_no_results": "❌ YouTube'dan variant topilmadi.",
         "song_downloading": "⬇️ Tanlangan qo'shiq yuklab olinmoqda...",
         "song_expired": "⚠️ Variantlar eskirdi. Qaytadan \"🔍 Qo'shiqni topish\" ni bosing.",
@@ -265,7 +265,7 @@ TEXTS = {
         "song_recognizing": "🔍 Recognizing the song...",
         "song_not_found": "❌ Couldn't recognize the song. No known music found in the video.",
         "song_recognized": "🎵 Found: **{name}**\n\n⬇️ Searching for options...",
-        "song_choose": "🎵 **{name}**\n\nChoose one of the options below:",
+        "song_choose": "🎵 **{name}**\n\n👇 Pick one of the options using the number buttons (1-5):",
         "song_no_results": "❌ No options found on YouTube.",
         "song_downloading": "⬇️ Downloading the selected song...",
         "song_expired": "⚠️ The options expired. Tap \"🔍 Find the song\" again.",
@@ -337,7 +337,7 @@ TEXTS = {
         "song_recognizing": "🔍 Распознаю песню...",
         "song_not_found": "❌ Не удалось распознать песню. В видео не найдена известная музыка.",
         "song_recognized": "🎵 Найдено: **{name}**\n\n⬇️ Ищу варианты...",
-        "song_choose": "🎵 **{name}**\n\nВыберите один из вариантов ниже:",
+        "song_choose": "🎵 **{name}**\n\n👇 Выберите вариант с помощью кнопок с номерами (1-5):",
         "song_no_results": "❌ Варианты не найдены на YouTube.",
         "song_downloading": "⬇️ Скачиваю выбранную песню...",
         "song_expired": "⚠️ Варианты устарели. Нажмите \"🔍 Найти песню\" снова.",
@@ -1387,16 +1387,28 @@ def _format_duration(seconds) -> str:
         return ""
 
 
-def _build_song_buttons(results: list, msg_id: int) -> InlineKeyboardMarkup:
-    """Variantlar ro'yxatidan tugmalar yasash"""
-    buttons = []
-    for i, res in enumerate(results):
+def _build_song_list_text(uid: int, query: str, results: list) -> str:
+    """Variantlarni raqamlangan matn ro'yxati ko'rinishida tayyorlash"""
+    lines = [t(uid, "song_choose", name=query), ""]
+    for i, res in enumerate(results, 1):
         dur = _format_duration(res.get("duration"))
-        label = res["title"][:40]
-        if dur:
-            label = f"{label} • {dur}"
-        buttons.append([InlineKeyboardButton(f"{i + 1}. {label}", callback_data=f"song|{msg_id}|{i}")])
-    return InlineKeyboardMarkup(buttons)
+        uploader = (res.get("uploader") or "").strip()
+        title = (res.get("title") or "Audio")[:70]
+        line = f"**{i}.** {title}"
+        meta = " • ".join(x for x in [uploader[:30], dur] if x)
+        if meta:
+            line += f"\n     _{meta}_"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _build_song_buttons(results: list, msg_id: int) -> InlineKeyboardMarkup:
+    """Faqat raqamli tugmalar (1 2 3 4 5) — bitta qatorda"""
+    row = [
+        InlineKeyboardButton(str(i + 1), callback_data=f"song|{msg_id}|{i}")
+        for i in range(len(results))
+    ]
+    return InlineKeyboardMarkup([row])
 
 
 def _song_fx_markup(msg_id: int, index: int) -> InlineKeyboardMarkup:
@@ -1753,7 +1765,7 @@ async def callback_find_song(client, callback: CallbackQuery):
         song_choices[msg_id] = c_results
         song_query[msg_id] = c_query
         await callback.message.reply(
-            t(uid, "song_choose", name=c_query),
+            _build_song_list_text(uid, c_query, c_results),
             reply_markup=_build_song_buttons(c_results, msg_id)
         )
         return
@@ -1787,7 +1799,7 @@ async def callback_find_song(client, callback: CallbackQuery):
         set_cache(url, "songmeta", {"query": query, "results": results})
 
         await status.edit_text(
-            t(uid, "song_choose", name=query),
+            _build_song_list_text(uid, query, results),
             reply_markup=_build_song_buttons(results, msg_id)
         )
     except Exception as e:
