@@ -1465,7 +1465,7 @@ async def search_youtube_songs(query: str, limit: int = 5):
             "extract_flat": True,
             "skip_download": True,
             "socket_timeout": 20,
-            "extractor_args": {"youtube": {"player_client": ["default", "web_safari", "mweb"]}},
+            "extractor_args": {"youtube": {"player_client": ["default", "web_safari"]}},
         }
         if _yt_cookie_path:
             ydl_opts["cookiefile"] = _yt_cookie_path
@@ -1494,46 +1494,76 @@ async def search_youtube_songs(query: str, limit: int = 5):
         return [], f"❌ `{str(e)[:100]}`"
 
 
-async def download_song_audio(url: str, chat_id: int):
-    """Tanlangan YouTube havoladan MP3 (320kbps) yuklab olish — YouTube cookie bilan."""
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
-    ydl_opts = {
-        "outtmpl": output_template,
-        "format": "bestaudio/best",
-        "quiet": True,
-        "no_warnings": True,
-        "socket_timeout": 30,
-        "extractor_args": {"youtube": {"player_client": ["default", "web_safari", "mweb"]}},
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "320",
-        }],
-    }
-    if _yt_cookie_path:
-        ydl_opts["cookiefile"] = _yt_cookie_path
+# YouTube formatlar har bir mijoz uchun har xil — ketma-ket urinib ko'ramiz.
+# (player_client, format) juftliklari: birinchisi ishlamasa, keyingisiga o'tadi.
+_YT_DOWNLOAD_ATTEMPTS = [
+    (["default", "web_safari"], "bestaudio/best"),
+    (["tv", "ios"], "bestaudio/best"),
+    (["android", "ios"], "bestaudio/best"),
+    (["tv", "web_safari", "default"], "best"),
+]
 
-    try:
-        loop = asyncio.get_running_loop()
+
+async def download_song_audio(url: str, chat_id: int):
+    """Tanlangan YouTube havoladan MP3 (320kbps) yuklab olish.
+    Bir nechta mijoz/format bilan navbatma-navbat urinadi (cookie bilan)."""
+    output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
+    loop = asyncio.get_running_loop()
+    last_error = None
+
+    for player_clients, fmt in _YT_DOWNLOAD_ATTEMPTS:
+        # Oldingi urinishdan qolgan fayllarni tozalash
+        for f in DOWNLOAD_DIR.iterdir():
+            if f.name.startswith(f"{chat_id}_song_"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+        ydl_opts = {
+            "outtmpl": output_template,
+            "format": fmt,
+            "quiet": True,
+            "no_warnings": True,
+            "socket_timeout": 30,
+            "extractor_args": {"youtube": {"player_client": player_clients}},
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "320",
+            }],
+        }
+        if _yt_cookie_path:
+            ydl_opts["cookiefile"] = _yt_cookie_path
 
         def _download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.extract_info(url, download=True)
 
-        await loop.run_in_executor(None, _download)
+        try:
+            await loop.run_in_executor(None, _download)
+            files = [f for f in DOWNLOAD_DIR.iterdir()
+                     if f.name.startswith(f"{chat_id}_song_")]
+            if files:
+                return files, None
+            last_error = "not_found"
+        except yt_dlp.utils.DownloadError as e:
+            err = str(e).lower()
+            if "login" in err or "sign in" in err or "confirm you" in err or "bot" in err:
+                last_error = "login"
+                # Bot-tekshiruvi — boshqa mijoz yordam berishi mumkin, davom etamiz
+                continue
+            if "format is not available" in err or "requested format" in err:
+                # Boshqa mijoz/format bilan urinib ko'ramiz
+                last_error = f"❌ `{str(e)[:120]}`"
+                continue
+            last_error = f"❌ `{str(e)[:120]}`"
+            continue
+        except Exception as e:
+            last_error = f"❌ `{str(e)[:120]}`"
+            continue
 
-        files = [f for f in DOWNLOAD_DIR.iterdir()
-                 if f.name.startswith(f"{chat_id}_song_")]
-        if files:
-            return files, None
-        return None, "not_found"
-    except yt_dlp.utils.DownloadError as e:
-        err = str(e).lower()
-        if "login" in err or "sign in" in err or "cookie" in err or "bot" in err:
-            return None, "login"
-        return None, f"❌ `{str(e)[:120]}`"
-    except Exception as e:
-        return None, f"❌ `{str(e)[:120]}`"
+    return None, last_error or "not_found"
 
 
 @app.on_callback_query(filters.regex(r"^findsong\|"))
