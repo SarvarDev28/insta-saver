@@ -1496,6 +1496,91 @@ async def search_youtube_songs(query: str, limit: int = 5):
         return [], f"❌ `{str(e)[:100]}`"
 
 
+async def search_soundcloud_songs(query: str, limit: int = 5):
+    """SoundCloud'dan qo'shiqni qidirib, `limit` ta variant qaytaradi.
+    SoundCloud cloud serverlarni bloklamaydi va cookie talab qilmaydi."""
+    loop = asyncio.get_running_loop()
+
+    def _search():
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": True,
+            "skip_download": True,
+            "socket_timeout": 20,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"scsearch{limit}:{query}", download=False)
+        entries = (info or {}).get("entries", []) or []
+        results = []
+        for e in entries:
+            if not e:
+                continue
+            link = e.get("url") or e.get("webpage_url")
+            results.append({
+                "title": e.get("title") or "Audio",
+                "url": link,
+                "duration": e.get("duration"),
+                "uploader": e.get("uploader") or e.get("uploader_id") or "",
+            })
+        return [x for x in results if x["url"]]
+
+    try:
+        return await loop.run_in_executor(None, _search), None
+    except Exception as e:
+        return [], f"❌ `{str(e)[:100]}`"
+
+
+async def download_audio_from_url(url: str, chat_id: int):
+    """Berilgan havoladan (SoundCloud va h.k.) to'g'ridan-to'g'ri MP3 (320kbps) yuklab olish."""
+    output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
+    ydl_opts = {
+        "outtmpl": output_template,
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "320",
+        }],
+    }
+
+    for f in DOWNLOAD_DIR.iterdir():
+        if f.name.startswith(f"{chat_id}_song_"):
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(url, download=True)
+
+        await loop.run_in_executor(None, _download)
+        files = [f for f in DOWNLOAD_DIR.iterdir()
+                 if f.name.startswith(f"{chat_id}_song_")]
+        if files:
+            return files, None
+        return None, "not_found"
+    except Exception as e:
+        return None, f"❌ `{str(e)[:120]}`"
+
+
+async def download_chosen_song(url: str, query: str, chat_id: int):
+    """Tanlangan SoundCloud havoladan yuklab olish; bo'lmasa nom bo'yicha qayta qidirib yuklash."""
+    files, error = await download_audio_from_url(url, chat_id)
+    if files:
+        return files, None
+    if query:
+        return await download_song_from_soundcloud(query, chat_id)
+    return None, error
+
+
 # YouTube formatlar har bir mijoz uchun har xil — ketma-ket urinib ko'ramiz.
 # (player_client, format) juftliklari: birinchisi ishlamasa, keyingisiga o'tadi.
 _YT_DOWNLOAD_ATTEMPTS = [
@@ -1655,8 +1740,8 @@ async def callback_find_song(client, callback: CallbackQuery):
 
         await status.edit_text(t(uid, "song_recognized", name=query))
 
-        # 2) YouTube'dan 5 ta variant qidirish
-        results, serr = await search_youtube_songs(query, limit=5)
+        # 2) SoundCloud'dan 5 ta variant qidirish (server IP'dan ishonchli)
+        results, serr = await search_soundcloud_songs(query, limit=5)
         if serr or not results:
             await status.edit_text(t(uid, "song_no_results"))
             return
@@ -1701,7 +1786,7 @@ async def callback_pick_song(client, callback: CallbackQuery):
         return
 
     chosen = results[index]
-    yt_url = chosen["url"]
+    sc_url = chosen["url"]
     query = song_query.get(msg_id, "")
 
     await callback.answer("⬇️", show_alert=False)
@@ -1709,7 +1794,7 @@ async def callback_pick_song(client, callback: CallbackQuery):
 
     try:
         start_time = _time.time()
-        files, error, source = await download_song_any(yt_url, query, chat_id)
+        files, error = await download_chosen_song(sc_url, query, chat_id)
 
         if error:
             await status.edit_text(get_error_text(uid, error))
@@ -1720,14 +1805,13 @@ async def callback_pick_song(client, callback: CallbackQuery):
 
         elapsed = round(_time.time() - start_time, 1)
         title = chosen.get("title") or query or "Audio"
-        src_tag = "🟧 SoundCloud" if source == "soundcloud" else "▶️ YouTube"
 
         for filepath in files:
             ext = filepath.suffix.lower()
             if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
                 sent = await callback.message.reply_audio(
                     str(filepath),
-                    caption=f"🎵 {title} | ⚡ {elapsed}s | {src_tag}\n@InstaDownloader_uzBot",
+                    caption=f"🎵 {title} | ⚡ {elapsed}s | 🟧 SoundCloud\n@InstaDownloader_uzBot",
                     title=title,
                     reply_markup=InlineKeyboardMarkup([
                         [
@@ -1779,8 +1863,8 @@ async def callback_song_effect(client, callback: CallbackQuery):
     status = await callback.message.reply(f"{effect['name']} qo'shilmoqda...")
 
     try:
-        # YouTube bloklansa SoundCloud'dan yuklab, keyin effekt qo'shamiz.
-        files, error, _source = await download_song_any(yt_url, query, chat_id)
+        # SoundCloud havoladan yuklab, keyin effekt qo'shamiz.
+        files, error = await download_chosen_song(yt_url, query, chat_id)
         if error:
             await status.edit_text(get_error_text(uid, error))
             return
