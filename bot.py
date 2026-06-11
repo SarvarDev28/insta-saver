@@ -94,22 +94,34 @@ YT_COOKIE_FILE = Path("youtube_cookies.txt")
 
 
 def _create_youtube_cookie_file():
-    """YOUTUBE_COOKIES env (Netscape cookies.txt matni) ni faylga yozish"""
+    """YOUTUBE_COOKIES env (Netscape cookies.txt matni) ni faylga yozish.
+    Qaytaradi: (path, cookie_line_count) yoki (None, 0)."""
     if not YOUTUBE_COOKIES:
-        return None
+        return None, 0
     content = YOUTUBE_COOKIES
+    # \n literal kelgan bo'lsa haqiqiy newline ga aylantirish
+    content = content.replace("\\n", "\n").replace("\\t", "\t")
     # Netscape header bo'lmasa qo'shamiz
     if not content.lstrip().startswith("# Netscape"):
         content = "# Netscape HTTP Cookie File\n" + content
-    # \n literal kelgan bo'lsa haqiqiy newline ga aylantirish
-    content = content.replace("\\n", "\n")
     YT_COOKIE_FILE.write_text(content)
-    return str(YT_COOKIE_FILE)
+    # Diagnostika: nechta haqiqiy cookie qatori bor (izoh va bo'sh qatorlardan tashqari)
+    cookie_lines = [
+        ln for ln in content.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+    return str(YT_COOKIE_FILE), len(cookie_lines)
 
 
-_yt_cookie_path = _create_youtube_cookie_file()
+_yt_cookie_path, _yt_cookie_count = _create_youtube_cookie_file()
 if _yt_cookie_path:
-    logger.info("✅ YouTube cookie fayl yaratildi")
+    logger.info(f"✅ YouTube cookie fayl yaratildi — {_yt_cookie_count} ta cookie qatori")
+    if _yt_cookie_count < 3:
+        logger.warning(
+            "⚠️ YouTube cookie qatorlari juda kam! "
+            "Render env'ga cookie'lar bir qatorga yopishib tushgan bo'lishi mumkin "
+            "(yangi qatorlar yo'qolgan). cookies.txt to'liq, qatorma-qator joylanganiga ishonch hosil qiling."
+        )
 else:
     logger.warning("⚠️ YOUTUBE_COOKIES o'rnatilmagan — YouTube cookie siz ishlaydi")
 
@@ -1453,6 +1465,7 @@ async def search_youtube_songs(query: str, limit: int = 5):
             "extract_flat": True,
             "skip_download": True,
             "socket_timeout": 20,
+            "extractor_args": {"youtube": {"player_client": ["default", "web_safari", "mweb"]}},
         }
         if _yt_cookie_path:
             ydl_opts["cookiefile"] = _yt_cookie_path
@@ -1490,6 +1503,7 @@ async def download_song_audio(url: str, chat_id: int):
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
+        "extractor_args": {"youtube": {"player_client": ["default", "web_safari", "mweb"]}},
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
