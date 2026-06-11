@@ -705,7 +705,6 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
             has_video = any(f.suffix.lower() in VIDEO_EXTS for f in media_files)
             buttons = [[InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")]]
             if has_video:
-                buttons.append([InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{msg_id}")])
                 buttons.append([InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}")])
             await message.reply(
                 "✅ " + str(len(media_files)) + " ta media yuklandi\n@InstaDownloader_uzBot",
@@ -735,7 +734,6 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
                     supports_streaming=True,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")],
-                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{msg_id}")],
                         [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}")]
                     ])
                 )
@@ -746,7 +744,6 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
                     caption=caption,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")],
-                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{msg_id}")],
                         [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}")]
                     ])
                 )
@@ -976,7 +973,6 @@ async def handle_message(client, message: Message):
                     supports_streaming=True,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
-                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")],
                         [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{message.id}")]
                     ])
                 )
@@ -986,7 +982,6 @@ async def handle_message(client, message: Message):
                     caption=t(uid, "caption_speed", platform=platform, seconds="0.1"),
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
-                        [InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"audio|{message.id}")],
                         [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{message.id}")]
                     ])
                 )
