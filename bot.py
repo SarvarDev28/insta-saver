@@ -1379,6 +1379,8 @@ async def callback_audio_effect(client, callback: CallbackQuery):
 
 # Topilgan variantlarni vaqtincha saqlash: {msg_id: [{title,url,duration,uploader}, ...]}
 song_choices = {}
+# Aniqlangan qo'shiq nomini saqlash (SoundCloud zaxira uchun): {msg_id: "Artist - Title"}
+song_query = {}
 
 
 def _format_duration(seconds) -> str:
@@ -1499,8 +1501,6 @@ async def search_youtube_songs(query: str, limit: int = 5):
 _YT_DOWNLOAD_ATTEMPTS = [
     (["default", "web_safari"], "bestaudio/best"),
     (["tv", "ios"], "bestaudio/best"),
-    (["android", "ios"], "bestaudio/best"),
-    (["tv", "web_safari", "default"], "best"),
 ]
 
 
@@ -1566,6 +1566,65 @@ async def download_song_audio(url: str, chat_id: int):
     return None, last_error or "not_found"
 
 
+async def download_song_from_soundcloud(query: str, chat_id: int):
+    """SoundCloud'dan qo'shiqni nom bo'yicha qidirib MP3 yuklab olish.
+    YouTube serverda bloklanganda zaxira manba sifatida ishlatiladi.
+    SoundCloud cookie talab qilmaydi va cloud IP'larni bloklamaydi."""
+    output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
+    ydl_opts = {
+        "outtmpl": output_template,
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "default_search": "scsearch",
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "320",
+        }],
+    }
+
+    # Eski fayllarni tozalash
+    for f in DOWNLOAD_DIR.iterdir():
+        if f.name.startswith(f"{chat_id}_song_"):
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(f"scsearch1:{query}", download=True)
+
+        await loop.run_in_executor(None, _download)
+        files = [f for f in DOWNLOAD_DIR.iterdir()
+                 if f.name.startswith(f"{chat_id}_song_")]
+        if files:
+            return files, None
+        return None, "not_found"
+    except Exception as e:
+        return None, f"❌ `{str(e)[:120]}`"
+
+
+async def download_song_any(yt_url: str, query: str, chat_id: int):
+    """Avval YouTube'dan, bo'lmasa SoundCloud'dan yuklab olishga urinish.
+    Qaytaradi: (files, error, source) — source: 'youtube' yoki 'soundcloud'."""
+    files, error = await download_song_audio(yt_url, chat_id)
+    if files:
+        return files, None, "youtube"
+    # YouTube bloklangan/ishlamasa — SoundCloud zaxirasi
+    if query:
+        sc_files, sc_error = await download_song_from_soundcloud(query, chat_id)
+        if sc_files:
+            return sc_files, None, "soundcloud"
+        return None, sc_error or error, "soundcloud"
+    return None, error, "youtube"
+
+
 @app.on_callback_query(filters.regex(r"^findsong\|"))
 async def callback_find_song(client, callback: CallbackQuery):
     """🔍 Qo'shiqni topish — videodagi musiqani aniqlab, 5 ta variant berish"""
@@ -1604,6 +1663,7 @@ async def callback_find_song(client, callback: CallbackQuery):
 
         # 3) Variantlarni saqlash va tugmalar yasash
         song_choices[msg_id] = results
+        song_query[msg_id] = query
         buttons = []
         for i, res in enumerate(results):
             dur = _format_duration(res.get("duration"))
@@ -1642,13 +1702,14 @@ async def callback_pick_song(client, callback: CallbackQuery):
 
     chosen = results[index]
     yt_url = chosen["url"]
+    query = song_query.get(msg_id, "")
 
     await callback.answer("⬇️", show_alert=False)
     status = await callback.message.reply(t(uid, "song_downloading"))
 
     try:
         start_time = _time.time()
-        files, error = await download_song_audio(yt_url, chat_id)
+        files, error, source = await download_song_any(yt_url, query, chat_id)
 
         if error:
             await status.edit_text(get_error_text(uid, error))
@@ -1658,14 +1719,15 @@ async def callback_pick_song(client, callback: CallbackQuery):
             return
 
         elapsed = round(_time.time() - start_time, 1)
-        title = chosen.get("title") or "Audio"
+        title = chosen.get("title") or query or "Audio"
+        src_tag = "🟧 SoundCloud" if source == "soundcloud" else "▶️ YouTube"
 
         for filepath in files:
             ext = filepath.suffix.lower()
             if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
                 sent = await callback.message.reply_audio(
                     str(filepath),
-                    caption=f"🎵 {title} | ⚡ {elapsed}s\n@InstaDownloader_uzBot",
+                    caption=f"🎵 {title} | ⚡ {elapsed}s | {src_tag}\n@InstaDownloader_uzBot",
                     title=title,
                     reply_markup=InlineKeyboardMarkup([
                         [
@@ -1706,6 +1768,7 @@ async def callback_song_effect(client, callback: CallbackQuery):
         await callback.answer(t(uid, "song_expired"), show_alert=True)
         return
     yt_url = results[index]["url"]
+    query = song_query.get(msg_id, "")
 
     effect = AUDIO_EFFECTS.get(effect_key)
     if not effect:
@@ -1716,9 +1779,8 @@ async def callback_song_effect(client, callback: CallbackQuery):
     status = await callback.message.reply(f"{effect['name']} qo'shilmoqda...")
 
     try:
-        # download_audio_with_effect IG cookie ishlatadi; YouTube uchun
-        # bevosita yuklab, keyin effekt qo'shamiz.
-        files, error = await download_song_audio(yt_url, chat_id)
+        # YouTube bloklansa SoundCloud'dan yuklab, keyin effekt qo'shamiz.
+        files, error, _source = await download_song_any(yt_url, query, chat_id)
         if error:
             await status.edit_text(get_error_text(uid, error))
             return
