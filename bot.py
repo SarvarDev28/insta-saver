@@ -1424,32 +1424,55 @@ def _song_fx_markup(msg_id: int, index: int) -> InlineKeyboardMarkup:
 
 
 async def recognize_song(url: str, chat_id: int):
-    """IG havoladan audio yuklab, Shazam orqali qo'shiqni aniqlash.
-    Qaytaradi: (query_str, error). query_str — 'Artist - Title' yoki None."""
-    # 1) Audio (mp3) ni yuklab olish
-    files, error = await download_audio(url, chat_id)
-    if error:
-        return None, error
-    if not files:
-        return None, "not_found"
+    """IG havoladan qisqa audio bo'lak olib, Shazam orqali qo'shiqni aniqlash.
+    Tezlik uchun: to'liq 320kbps MP3 emas, xom audio yuklanadi va faqat
+    birinchi ~15 soniya o'qib olinadi. Qaytaradi: (query_str, error)."""
+    loop = asyncio.get_running_loop()
 
-    audio_file = None
-    for f in files:
-        if f.suffix.lower() in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
-            audio_file = f
-            break
+    # 1) Xom audio (qayta kodlashsiz) ni tez yuklab olish
+    raw_template = str(DOWNLOAD_DIR / f"{chat_id}_recog.%(ext)s")
+    ydl_opts = {
+        "outtmpl": raw_template,
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+    }
+    if _cookie_path:
+        ydl_opts["cookiefile"] = _cookie_path
+
+    def _download_raw():
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(url, download=True)
+        for f in DOWNLOAD_DIR.iterdir():
+            if f.name.startswith(f"{chat_id}_recog."):
+                return f
+        return None
+
+    try:
+        audio_file = await loop.run_in_executor(None, _download_raw)
+    except yt_dlp.utils.DownloadError as e:
+        err = str(e).lower()
+        if "private" in err:
+            return None, "private"
+        if "login" in err or "sign in" in err:
+            return None, "login"
+        return None, f"❌ `{str(e)[:100]}`"
+    except Exception as e:
+        return None, f"❌ `{str(e)[:100]}`"
+
     if not audio_file:
         return None, "not_found"
 
-    # 2) Tezlik uchun qisqa bo'lak (~20s) ajratish
+    # 2) Faqat birinchi ~15 soniyani past sifatli (mono 16kHz) bo'lakka aylantirish
     snippet = DOWNLOAD_DIR / f"{chat_id}_shazam.ogg"
-    loop = asyncio.get_running_loop()
 
     def _make_snippet():
         import subprocess
+        # "-t 15" ni "-i" dan oldin qo'yamiz — ffmpeg faqat 15s kirishni o'qiydi (tezroq)
         cmd = [
-            "ffmpeg", "-y", "-i", str(audio_file),
-            "-t", "20", "-vn", "-ac", "1", "-ar", "16000",
+            "ffmpeg", "-y", "-t", "15", "-i", str(audio_file),
+            "-vn", "-ac", "1", "-ar", "16000",
             str(snippet),
         ]
         try:
