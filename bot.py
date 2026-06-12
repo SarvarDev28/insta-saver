@@ -1635,6 +1635,30 @@ async def download_chosen_song(url: str, query: str, chat_id: int):
     return None, error
 
 
+async def download_song_try_all(results: list, start_index: int, query: str, chat_id: int):
+    """Tanlangan variantdan boshlab, yuklab bo'ladiganini topguncha urinadi.
+    Ba'zi SoundCloud treklari DRM bilan himoyalangan — ular o'tkazib yuboriladi.
+    Qaytaradi: (files, error, used_index)."""
+    n = len(results)
+    order = [start_index] + [i for i in range(n) if i != start_index]
+    last_error = None
+    for idx in order:
+        url = results[idx].get("url") if 0 <= idx < n else None
+        if not url:
+            continue
+        files, error = await download_audio_from_url(url, chat_id)
+        if files:
+            return files, None, idx
+        last_error = error
+    # Hech qaysi variant ishlamasa — nom bo'yicha qayta qidirib ko'ramiz
+    if query:
+        files, error = await download_song_from_soundcloud(query, chat_id)
+        if files:
+            return files, None, start_index
+        last_error = error or last_error
+    return None, last_error, start_index
+
+
 # YouTube formatlar har bir mijoz uchun har xil — ketma-ket urinib ko'ramiz.
 # (player_client, format) juftliklari: birinchisi ishlamasa, keyingisiga o'tadi.
 _YT_DOWNLOAD_ATTEMPTS = [
@@ -1872,17 +1896,16 @@ async def callback_pick_song(client, callback: CallbackQuery):
 
     try:
         start_time = _time.time()
-        files, error = await download_chosen_song(sc_url, query, chat_id)
+        files, error, used_index = await download_song_try_all(results, index, query, chat_id)
 
-        if error:
-            await status.edit_text(get_error_text(uid, error))
-            return
         if not files:
-            await status.edit_text(t(uid, "download_error"))
+            await status.edit_text(get_error_text(uid, error) if error else t(uid, "download_error"))
             return
 
+        used = results[used_index] if 0 <= used_index < len(results) else chosen
+        used_url = used.get("url") or sc_url
         elapsed = round(_time.time() - start_time, 1)
-        title = chosen.get("title") or query or "Audio"
+        title = used.get("title") or query or "Audio"
 
         for filepath in files:
             ext = filepath.suffix.lower()
@@ -1891,12 +1914,12 @@ async def callback_pick_song(client, callback: CallbackQuery):
                     str(filepath),
                     caption=f"🎵 {title} | ⚡ {elapsed}s | 🟧 SoundCloud\n@InstaDownloader_uzBot",
                     title=title,
-                    reply_markup=_song_fx_markup(msg_id, index)
+                    reply_markup=_song_fx_markup(msg_id, used_index)
                 )
                 # ⚡ file_id ni keshlash — keyingi safar darhol kelishi uchun
                 try:
                     if sent and sent.audio:
-                        set_cache(sc_url, "scaudio", {"file_id": sent.audio.file_id, "title": title})
+                        set_cache(used_url, "scaudio", {"file_id": sent.audio.file_id, "title": title})
                 except Exception:
                     pass
             else:
@@ -1926,7 +1949,6 @@ async def callback_song_effect(client, callback: CallbackQuery):
     if not results or index >= len(results):
         await callback.answer(t(uid, "song_expired"), show_alert=True)
         return
-    yt_url = results[index]["url"]
     query = song_query.get(msg_id, "")
 
     effect = AUDIO_EFFECTS.get(effect_key)
@@ -1938,13 +1960,10 @@ async def callback_song_effect(client, callback: CallbackQuery):
     status = await callback.message.reply(f"{effect['name']} qo'shilmoqda...")
 
     try:
-        # SoundCloud havoladan yuklab, keyin effekt qo'shamiz.
-        files, error = await download_chosen_song(yt_url, query, chat_id)
-        if error:
-            await status.edit_text(get_error_text(uid, error))
-            return
+        # SoundCloud havoladan yuklab (DRM bo'lsa boshqa variantga o'tadi), keyin effekt qo'shamiz.
+        files, error, _used = await download_song_try_all(results, index, query, chat_id)
         if not files:
-            await status.edit_text(t(uid, "download_error"))
+            await status.edit_text(get_error_text(uid, error) if error else t(uid, "download_error"))
             return
 
         loop = asyncio.get_running_loop()
