@@ -58,6 +58,28 @@ DOWNLOAD_DIR.mkdir(exist_ok=True)
 # URL xotira — callback_data 64 bayt limiti uchun
 pending_urls = {}  # {msg_id: url}
 
+# Xotira sizib chiqishining oldini olish — kuzatiladigan yozuvlar soni cheklanadi
+_MAX_TRACKED = 2000
+
+
+def _remember(d: dict, key, value):
+    """dict ga yozadi va o'lcham oshib ketsa eng eski yozuvlarni o'chiradi"""
+    d[key] = value
+    if len(d) > _MAX_TRACKED:
+        for k in list(d.keys())[: len(d) - _MAX_TRACKED]:
+            d.pop(k, None)
+
+
+def _md_escape(s) -> str:
+    """Pyrogram Markdown maxsus belgilarini escape qilish.
+    Qo'shiq/track nomlaridagi *, _, [, ] kabi belgilar xabarni buzmasligi uchun."""
+    if not s:
+        return ""
+    s = str(s)
+    for ch in ("\\", "`", "*", "_", "~", "[", "]", "|"):
+        s = s.replace(ch, "\\" + ch)
+    return s
+
 # Instagram cookie fayl yaratish
 COOKIE_FILE = Path("instagram_cookies.txt")
 
@@ -194,7 +216,7 @@ TEXTS = {
         "song_not_found": "❌ Qo'shiq aniqlanmadi. Videoda taniqli musiqa topilmadi.",
         "song_recognized": "🎵 Topildi: **{name}**\n\n⬇️ Variantlar qidirilmoqda...",
         "song_choose": "🎵 **{name}**\n\n👇 Quyidagi variantlardan birini raqamli tugma (1-5) orqali tanlang:",
-        "song_no_results": "❌ YouTube'dan variant topilmadi.",
+        "song_no_results": "❌ SoundCloud'dan variant topilmadi.",
         "song_downloading": "⬇️ Tanlangan qo'shiq yuklab olinmoqda...",
         "song_expired": "⚠️ Variantlar eskirdi. Qaytadan \"🔍 Qo'shiqni topish\" ni bosing.",
         "subscribe_channel": "❗ Botdan foydalanish uchun kanalga obuna bo'ling:\n\n👉 {channel}\n\n✅ Obuna bo'lgach, qayta yuboring.",
@@ -266,7 +288,7 @@ TEXTS = {
         "song_not_found": "❌ Couldn't recognize the song. No known music found in the video.",
         "song_recognized": "🎵 Found: **{name}**\n\n⬇️ Searching for options...",
         "song_choose": "🎵 **{name}**\n\n👇 Pick one of the options using the number buttons (1-5):",
-        "song_no_results": "❌ No options found on YouTube.",
+        "song_no_results": "❌ No options found on SoundCloud.",
         "song_downloading": "⬇️ Downloading the selected song...",
         "song_expired": "⚠️ The options expired. Tap \"🔍 Find the song\" again.",
         "subscribe_channel": "❗ Subscribe to the channel to use the bot:\n\n👉 {channel}\n\n✅ After subscribing, send again.",
@@ -338,7 +360,7 @@ TEXTS = {
         "song_not_found": "❌ Не удалось распознать песню. В видео не найдена известная музыка.",
         "song_recognized": "🎵 Найдено: **{name}**\n\n⬇️ Ищу варианты...",
         "song_choose": "🎵 **{name}**\n\n👇 Выберите вариант с помощью кнопок с номерами (1-5):",
-        "song_no_results": "❌ Варианты не найдены на YouTube.",
+        "song_no_results": "❌ Варианты не найдены на SoundCloud.",
         "song_downloading": "⬇️ Скачиваю выбранную песню...",
         "song_expired": "⚠️ Варианты устарели. Нажмите \"🔍 Найти песню\" снова.",
         "subscribe_channel": "❗ Подпишитесь на канал, чтобы использовать бота:\n\n👉 {channel}\n\n✅ После подписки отправьте снова.",
@@ -608,25 +630,6 @@ async def download_photo(url: str, chat_id: int):
         return None, f"❌ Yuklab bo'lmadi: `{str(e)[:100]}`"
 
 
-async def download_audio(url: str, chat_id: int):
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
-    ydl_opts = {
-        "outtmpl": output_template,
-        "format": "bestaudio/best",
-        "quiet": True,
-        "no_warnings": True,
-        "socket_timeout": 30,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "320",
-        }],
-    }
-    if _cookie_path:
-        ydl_opts["cookiefile"] = _cookie_path
-    return await _execute_download(url, chat_id, ydl_opts)
-
-
 async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
     try:
         loop = asyncio.get_running_loop()
@@ -637,7 +640,7 @@ async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
 
         await loop.run_in_executor(None, _download)
 
-        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(str(chat_id))]
+        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(f"{chat_id}_")]
         if files:
             return files, None
         return None, "not_found"
@@ -658,7 +661,7 @@ async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
 
 def cleanup(chat_id: int):
     for f in DOWNLOAD_DIR.iterdir():
-        if f.name.startswith(str(chat_id)):
+        if f.name.startswith(f"{chat_id}_"):
             try:
                 f.unlink()
             except Exception:
@@ -952,6 +955,11 @@ async def handle_message(client, message: Message):
                 await message.reply(t(uid, "send_link"))
             return
 
+    # Kanal obunasi tekshiruvi (faqat shaxsiy chat, CHANNEL_ID sozlangan bo'lsa)
+    if not is_group and CHANNEL_ID and not await check_subscription(client, uid):
+        await message.reply(t(uid, "subscribe_channel", channel=CHANNEL_ID))
+        return
+
     save_user(uid)
 
     # Like reaction
@@ -985,7 +993,7 @@ async def handle_message(client, message: Message):
                         [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{message.id}")]
                     ])
                 )
-            pending_urls[message.id] = url
+            _remember(pending_urls, message.id, url)
             return
         except Exception:
             pass
@@ -999,7 +1007,7 @@ async def handle_message(client, message: Message):
                     [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")]
                 ])
             )
-            pending_urls[message.id] = url
+            _remember(pending_urls, message.id, url)
             return
         except Exception:
             pass
@@ -1071,7 +1079,7 @@ async def handle_message(client, message: Message):
 
             try:
                 await send_media_files(message, files, caption, uid, message.id, url)
-                pending_urls[message.id] = url
+                _remember(pending_urls, message.id, url)
                 await status.delete()
             except Exception as e:
                 await status.edit_text(f"❌ `{str(e)[:100]}`")
@@ -1096,7 +1104,7 @@ async def handle_message(client, message: Message):
 
     try:
         await send_media_files(message, files, caption, uid, message.id, url)
-        pending_urls[message.id] = url
+        _remember(pending_urls, message.id, url)
         await status.delete()
 
     except Exception as e:
@@ -1149,97 +1157,6 @@ async def callback_fav_reset(client, callback: CallbackQuery):
     await callback.message.edit_text("✅ Sevimlilar ro'yxati tozalandi.")
 
 
-@app.on_callback_query(filters.regex(r"^audio\|"))
-async def callback_audio(client, callback: CallbackQuery):
-    """Instagram videodan audio ajratib MP3 qilib yuborish"""
-    msg_id = int(callback.data.split("|")[1])
-    uid = callback.from_user.id
-    chat_id = callback.message.chat.id
-    url = pending_urls.get(msg_id)
-
-    if not url:
-        await callback.answer("⚠️", show_alert=True)
-        return
-
-    await callback.answer("🎵", show_alert=False)
-
-    status = await callback.message.reply(t(uid, "audio_extracting"))
-
-    try:
-        start_time = _time.time()
-        files, error = await download_audio(url, chat_id)
-
-        if error:
-            await status.edit_text(get_error_text(uid, error))
-            return
-
-        if not files:
-            await status.edit_text(t(uid, "download_error"))
-            return
-
-        elapsed = round(_time.time() - start_time, 1)
-
-        # Track nomini aniqlash
-        title = "Audio"
-        try:
-            loop = asyncio.get_running_loop()
-
-            def _get_title():
-                try:
-                    ydl_opts = {"quiet": True, "no_warnings": True, "socket_timeout": 10, "skip_download": True}
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        if info:
-                            track = info.get("track") or ""
-                            artist = info.get("artist") or info.get("creator") or ""
-                            ti = info.get("title") or ""
-                            if track:
-                                return f"{artist} — {track}" if artist else track
-                            generic = ["instagram", "reel", "video", "post"]
-                            if ti and not any(g in ti.lower() for g in generic):
-                                return ti
-                except Exception:
-                    pass
-                return ""
-
-            name = await loop.run_in_executor(None, _get_title)
-            if name:
-                title = name
-        except Exception:
-            pass
-
-        for filepath in files:
-            ext = filepath.suffix.lower()
-            if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
-                await callback.message.reply_audio(
-                    str(filepath),
-                    caption=f"🎵 {title} | ⚡ {elapsed}s\n@InstaDownloader_uzBot",
-                    title=title,
-                    reply_markup=InlineKeyboardMarkup([
-                        [
-                            InlineKeyboardButton("🎧 8D", callback_data=f"fx|8d|{msg_id}"),
-                            InlineKeyboardButton("🐢 Slowed", callback_data=f"fx|slow|{msg_id}"),
-                        ],
-                        [
-                            InlineKeyboardButton("🔊 Bass", callback_data=f"fx|bass|{msg_id}"),
-                            InlineKeyboardButton("🏛 Reverb", callback_data=f"fx|reverb|{msg_id}"),
-                        ],
-                    ])
-                )
-            else:
-                await callback.message.reply_document(
-                    str(filepath),
-                    caption=f"🎵 {title}\n@InstaDownloader_uzBot"
-                )
-
-        await status.delete()
-
-    except Exception as e:
-        await status.edit_text(f"❌ `{str(e)[:100]}`")
-    finally:
-        cleanup(chat_id)
-
-
 # ═══════════════════════════════════════════════════════════
 # 🎚 AUDIO EFFEKTLAR (8D, Slowed, Bass, Reverb)
 # ═══════════════════════════════════════════════════════════
@@ -1265,109 +1182,6 @@ AUDIO_EFFECTS = {
 }
 
 
-async def download_audio_with_effect(url: str, chat_id: int, effect_filter: str):
-    """Audio ni yuklab, keyin alohida FFmpeg bilan effekt qo'shish (320kbps sifatda)"""
-    # 1-bosqich: oddiy audio yuklab olish
-    files, error = await download_audio(url, chat_id)
-    if error:
-        return None, error
-    if not files:
-        return None, "not_found"
-
-    # 2-bosqich: FFmpeg bilan effekt qo'shish (alohida jarayon)
-    loop = asyncio.get_running_loop()
-
-    def _apply_effect():
-        import subprocess
-        out_files = []
-        for src in files:
-            if src.suffix.lower() not in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
-                continue
-            dst = DOWNLOAD_DIR / f"{chat_id}_fx_{src.stem}.mp3"
-            cmd = [
-                "ffmpeg", "-y", "-i", str(src),
-                "-af", effect_filter,
-                "-b:a", "320k",
-                str(dst),
-            ]
-            try:
-                subprocess.run(cmd, check=True,
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL)
-                try:
-                    src.unlink()
-                except Exception:
-                    pass
-                out_files.append(dst)
-            except Exception:
-                pass
-        return out_files
-
-    try:
-        fx_files = await loop.run_in_executor(None, _apply_effect)
-        if fx_files:
-            return fx_files, None
-        return None, "❌ Effekt qo'shib bo'lmadi."
-    except Exception as e:
-        return None, f"❌ `{str(e)[:100]}`"
-
-
-@app.on_callback_query(filters.regex(r"^fx\|"))
-async def callback_audio_effect(client, callback: CallbackQuery):
-    """Audio effekt qo'shish — 8D / Slowed / Bass / Reverb"""
-    parts = callback.data.split("|")
-    effect_key = parts[1]
-    msg_id = int(parts[2])
-    uid = callback.from_user.id
-    chat_id = callback.message.chat.id
-    url = pending_urls.get(msg_id)
-
-    if not url:
-        await callback.answer("⚠️ Link eskirgan.", show_alert=True)
-        return
-
-    effect = AUDIO_EFFECTS.get(effect_key)
-    if not effect:
-        await callback.answer("⚠️", show_alert=True)
-        return
-
-    await callback.answer(f"{effect['name']} qo'shilmoqda...", show_alert=False)
-
-    status = await callback.message.reply(f"{effect['name']} qo'shilmoqda...")
-
-    try:
-        files, error = await download_audio_with_effect(url, chat_id, effect["filter"])
-
-        if error:
-            await status.edit_text(get_error_text(uid, error))
-            return
-
-        if not files:
-            await status.edit_text(t(uid, "download_error"))
-            return
-
-        for filepath in files:
-            ext = filepath.suffix.lower()
-            if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
-                await callback.message.reply_audio(
-                    str(filepath),
-                    caption=f"{effect['name']}\n@InstaDownloader_uzBot",
-                    title=effect["name"]
-                )
-            else:
-                await callback.message.reply_document(
-                    str(filepath),
-                    caption=f"{effect['name']}\n@InstaDownloader_uzBot"
-                )
-
-        await status.delete()
-
-    except Exception as e:
-        await status.edit_text(f"❌ `{str(e)[:100]}`")
-    finally:
-        cleanup(chat_id)
-
-
 # ═══════════════════════════════════════════════════════════
 # 🔍 QO'SHIQNI TOPISH (Shazam → YouTube)
 # ═══════════════════════════════════════════════════════════
@@ -1388,11 +1202,12 @@ def _format_duration(seconds) -> str:
 
 
 def _build_song_list_text(uid: int, query: str, results: list) -> str:
-    """Variantlarni raqamlangan matn ro'yxati — har biri bitta qatorda"""
-    lines = [t(uid, "song_choose", name=query), ""]
+    """Variantlarni raqamlangan matn ro'yxati — har biri bitta qatorda.
+    Nom va query Markdown'ni buzmasligi uchun escape qilinadi."""
+    lines = [t(uid, "song_choose", name=_md_escape(query)), ""]
     for i, res in enumerate(results, 1):
         dur = _format_duration(res.get("duration"))
-        title = (res.get("title") or "Audio").replace("\n", " ").strip()[:45]
+        title = _md_escape((res.get("title") or "Audio").replace("\n", " ").strip()[:45])
         line = f"**{i}.** {title}"
         if dur:
             line += f" • {dur}"
@@ -1510,46 +1325,6 @@ async def recognize_song(url: str, chat_id: int):
         return None, f"❌ `{str(e)[:100]}`"
 
 
-async def search_youtube_songs(query: str, limit: int = 5):
-    """YouTube'dan qo'shiqni qidirib, eng yaxshi `limit` ta variant qaytaradi."""
-    loop = asyncio.get_running_loop()
-
-    def _search():
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": True,
-            "skip_download": True,
-            "socket_timeout": 20,
-            "extractor_args": {"youtube": {"player_client": ["default", "web_safari"]}},
-        }
-        if _yt_cookie_path:
-            ydl_opts["cookiefile"] = _yt_cookie_path
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
-        entries = (info or {}).get("entries", []) or []
-        results = []
-        for e in entries:
-            if not e:
-                continue
-            vid = e.get("id")
-            link = e.get("url") or e.get("webpage_url")
-            if vid and (not link or "youtube.com/watch" not in str(link)):
-                link = f"https://www.youtube.com/watch?v={vid}"
-            results.append({
-                "title": e.get("title") or "Audio",
-                "url": link,
-                "duration": e.get("duration"),
-                "uploader": e.get("uploader") or e.get("channel") or "",
-            })
-        return [x for x in results if x["url"]]
-
-    try:
-        return await loop.run_in_executor(None, _search), None
-    except Exception as e:
-        return [], f"❌ `{str(e)[:100]}`"
-
-
 async def search_soundcloud_songs(query: str, limit: int = 5):
     """SoundCloud'dan qo'shiqni qidirib, `limit` ta variant qaytaradi.
     SoundCloud cloud serverlarni bloklamaydi va cookie talab qilmaydi."""
@@ -1626,16 +1401,6 @@ async def download_audio_from_url(url: str, chat_id: int):
         return None, f"❌ `{str(e)[:120]}`"
 
 
-async def download_chosen_song(url: str, query: str, chat_id: int):
-    """Tanlangan SoundCloud havoladan yuklab olish; bo'lmasa nom bo'yicha qayta qidirib yuklash."""
-    files, error = await download_audio_from_url(url, chat_id)
-    if files:
-        return files, None
-    if query:
-        return await download_song_from_soundcloud(query, chat_id)
-    return None, error
-
-
 async def download_song_try_all(results: list, start_index: int, query: str, chat_id: int):
     """Tanlangan variantdan boshlab, yuklab bo'ladiganini topguncha urinadi.
     Ba'zi SoundCloud treklari DRM bilan himoyalangan — ular o'tkazib yuboriladi.
@@ -1658,76 +1423,6 @@ async def download_song_try_all(results: list, start_index: int, query: str, cha
             return files, None, start_index
         last_error = error or last_error
     return None, last_error, start_index
-
-
-# YouTube formatlar har bir mijoz uchun har xil — ketma-ket urinib ko'ramiz.
-# (player_client, format) juftliklari: birinchisi ishlamasa, keyingisiga o'tadi.
-_YT_DOWNLOAD_ATTEMPTS = [
-    (["default", "web_safari"], "bestaudio/best"),
-    (["tv", "ios"], "bestaudio/best"),
-]
-
-
-async def download_song_audio(url: str, chat_id: int):
-    """Tanlangan YouTube havoladan MP3 (320kbps) yuklab olish.
-    Bir nechta mijoz/format bilan navbatma-navbat urinadi (cookie bilan)."""
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
-    loop = asyncio.get_running_loop()
-    last_error = None
-
-    for player_clients, fmt in _YT_DOWNLOAD_ATTEMPTS:
-        # Oldingi urinishdan qolgan fayllarni tozalash
-        for f in DOWNLOAD_DIR.iterdir():
-            if f.name.startswith(f"{chat_id}_song_"):
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
-
-        ydl_opts = {
-            "outtmpl": output_template,
-            "format": fmt,
-            "quiet": True,
-            "no_warnings": True,
-            "socket_timeout": 30,
-            "extractor_args": {"youtube": {"player_client": player_clients}},
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "320",
-            }],
-        }
-        if _yt_cookie_path:
-            ydl_opts["cookiefile"] = _yt_cookie_path
-
-        def _download():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(url, download=True)
-
-        try:
-            await loop.run_in_executor(None, _download)
-            files = [f for f in DOWNLOAD_DIR.iterdir()
-                     if f.name.startswith(f"{chat_id}_song_")]
-            if files:
-                return files, None
-            last_error = "not_found"
-        except yt_dlp.utils.DownloadError as e:
-            err = str(e).lower()
-            if "login" in err or "sign in" in err or "confirm you" in err or "bot" in err:
-                last_error = "login"
-                # Bot-tekshiruvi — boshqa mijoz yordam berishi mumkin, davom etamiz
-                continue
-            if "format is not available" in err or "requested format" in err:
-                # Boshqa mijoz/format bilan urinib ko'ramiz
-                last_error = f"❌ `{str(e)[:120]}`"
-                continue
-            last_error = f"❌ `{str(e)[:120]}`"
-            continue
-        except Exception as e:
-            last_error = f"❌ `{str(e)[:120]}`"
-            continue
-
-    return None, last_error or "not_found"
 
 
 async def download_song_from_soundcloud(query: str, chat_id: int):
@@ -1774,21 +1469,6 @@ async def download_song_from_soundcloud(query: str, chat_id: int):
         return None, f"❌ `{str(e)[:120]}`"
 
 
-async def download_song_any(yt_url: str, query: str, chat_id: int):
-    """Avval YouTube'dan, bo'lmasa SoundCloud'dan yuklab olishga urinish.
-    Qaytaradi: (files, error, source) — source: 'youtube' yoki 'soundcloud'."""
-    files, error = await download_song_audio(yt_url, chat_id)
-    if files:
-        return files, None, "youtube"
-    # YouTube bloklangan/ishlamasa — SoundCloud zaxirasi
-    if query:
-        sc_files, sc_error = await download_song_from_soundcloud(query, chat_id)
-        if sc_files:
-            return sc_files, None, "soundcloud"
-        return None, sc_error or error, "soundcloud"
-    return None, error, "youtube"
-
-
 @app.on_callback_query(filters.regex(r"^findsong\|"))
 async def callback_find_song(client, callback: CallbackQuery):
     """🔍 Qo'shiqni topish — videodagi musiqani aniqlab, 5 ta variant berish"""
@@ -1808,12 +1488,15 @@ async def callback_find_song(client, callback: CallbackQuery):
     if cached_meta and cached_meta.get("results"):
         c_query = cached_meta.get("query", "")
         c_results = cached_meta["results"]
-        song_choices[msg_id] = c_results
-        song_query[msg_id] = c_query
-        await callback.message.reply(
-            _build_song_list_text(uid, c_query, c_results),
-            reply_markup=_build_song_buttons(c_results, msg_id)
-        )
+        _remember(song_choices, msg_id, c_results)
+        _remember(song_query, msg_id, c_query)
+        try:
+            await callback.message.reply(
+                _build_song_list_text(uid, c_query, c_results),
+                reply_markup=_build_song_buttons(c_results, msg_id)
+            )
+        except Exception as e:
+            await callback.message.reply(f"❌ `{str(e)[:100]}`")
         return
 
     status = await callback.message.reply(t(uid, "song_recognizing"))
@@ -1831,7 +1514,7 @@ async def callback_find_song(client, callback: CallbackQuery):
             await status.edit_text(t(uid, "song_not_found"))
             return
 
-        await status.edit_text(t(uid, "song_recognized", name=query))
+        await status.edit_text(t(uid, "song_recognized", name=_md_escape(query)))
 
         # 2) SoundCloud'dan 5 ta variant qidirish (server IP'dan ishonchli)
         results, serr = await search_soundcloud_songs(query, limit=5)
@@ -1840,8 +1523,8 @@ async def callback_find_song(client, callback: CallbackQuery):
             return
 
         # 3) Variantlarni saqlash (xotira + Redis kesh) va tugmalar yasash
-        song_choices[msg_id] = results
-        song_query[msg_id] = query
+        _remember(song_choices, msg_id, results)
+        _remember(song_query, msg_id, query)
         set_cache(url, "songmeta", {"query": query, "results": results})
 
         await status.edit_text(
@@ -1884,7 +1567,7 @@ async def callback_pick_song(client, callback: CallbackQuery):
             c_title = cached_audio.get("title") or chosen.get("title") or query or "Audio"
             await callback.message.reply_audio(
                 cached_audio["file_id"],
-                caption=f"🎵 {c_title} | ⚡ keshdan | 🟧 SoundCloud\n@InstaDownloader_uzBot",
+                caption=f"🎵 {_md_escape(c_title)} | ⚡ keshdan | 🟧 SoundCloud\n@InstaDownloader_uzBot",
                 title=c_title,
                 reply_markup=_song_fx_markup(msg_id, index)
             )
@@ -1913,7 +1596,7 @@ async def callback_pick_song(client, callback: CallbackQuery):
             if ext in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
                 sent = await callback.message.reply_audio(
                     str(filepath),
-                    caption=f"🎵 {title} | ⚡ {elapsed}s | 🟧 SoundCloud\n@InstaDownloader_uzBot",
+                    caption=f"🎵 {_md_escape(title)} | ⚡ {elapsed}s | 🟧 SoundCloud\n@InstaDownloader_uzBot",
                     title=title,
                     reply_markup=_song_fx_markup(msg_id, used_index)
                 )
@@ -1926,7 +1609,7 @@ async def callback_pick_song(client, callback: CallbackQuery):
             else:
                 await callback.message.reply_document(
                     str(filepath),
-                    caption=f"🎵 {title}\n@InstaDownloader_uzBot"
+                    caption=f"🎵 {_md_escape(title)}\n@InstaDownloader_uzBot"
                 )
 
         await status.delete()
