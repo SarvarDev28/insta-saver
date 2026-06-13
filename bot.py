@@ -5,12 +5,13 @@ import logging
 import re
 import threading
 import time as _time
+import uuid
 import redis
 import yt_dlp
 from pathlib import Path
 from datetime import date
 from flask import Flask
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import (
     Message,
     InlineKeyboardMarkup,
@@ -23,6 +24,7 @@ from pyrogram.types import (
     InputMediaVideo,
 )
 from pyrogram.enums import ChatType, ChatMemberStatus
+from pyrogram.errors import UserNotParticipant
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,6 +70,14 @@ def _remember(d: dict, key, value):
     if len(d) > _MAX_TRACKED:
         for k in list(d.keys())[: len(d) - _MAX_TRACKED]:
             d.pop(k, None)
+
+
+def _new_job(chat_id: int) -> str:
+    """Har bir yuklash so'rovi uchun noyob fayl-prefiksi.
+    Fayllarni faqat chat_id bo'yicha ajratish race-condition keltirib chiqaradi
+    (bir nechta so'rov bir vaqtda kelganda fayllar aralashib ketadi yoki bir
+    so'rovning cleanup'i boshqasining faylini o'chiradi). Noyob job-id buni hal qiladi."""
+    return f"{chat_id}_{uuid.uuid4().hex[:10]}"
 
 
 def _md_escape(s) -> str:
@@ -533,8 +543,14 @@ async def check_subscription(client, user_id: int) -> bool:
             ChatMemberStatus.ADMINISTRATOR,
             ChatMemberStatus.OWNER,
         ]
-    except Exception:
-        return True  # Xatolik bo'lsa — o'tkazib yuboramiz
+    except UserNotParticipant:
+        # Foydalanuvchi kanalga a'zo emas — obunani majburlaymiz
+        return False
+    except Exception as e:
+        # Bot kanalda admin emas yoki boshqa konfiguratsiya xatosi —
+        # bunda hamma foydalanuvchini bloklab qo'ymaslik uchun o'tkazib yuboramiz
+        logger.warning(f"⚠️ Obuna tekshirib bo'lmadi (konfiguratsiya?): {e}")
+        return True
 
 
 # ═══════════════════════════════════════════════════════════
@@ -790,7 +806,7 @@ async def cmd_start(client, message: Message):
         )
         return
 
-    await message.reply(t(user.id, "start", name=user.first_name))
+    await message.reply(t(user.id, "start", name=_md_escape(user.first_name)))
 
 
 @app.on_message(filters.command("help"))
@@ -1015,6 +1031,9 @@ async def handle_message(client, message: Message):
     # Vaqtni boshlash (tezlik uchun)
     start_time = _time.time()
 
+    # Har bir so'rov uchun noyob fayl-prefiksi (race-condition oldini olish)
+    job = _new_job(message.chat.id)
+
     # 📊 Zamonaviy progress bar
     async def show_progress(status_msg, stage):
         stages = [
@@ -1054,15 +1073,15 @@ async def handle_message(client, message: Message):
     # VIDEO yuklab olish
     await asyncio.sleep(0.2)
     await show_progress(status, 2)
-    files, error = await download_video(url, message.chat.id)
+    files, error = await download_video(url, job)
 
     # Agar video bo'lmasa — rasm sifatida urinib ko'ramiz (faqat Instagram)
     if error and platform == "Instagram":
         err_str = str(error).lower()
         if "no video" in err_str or "not a video" in err_str or "there is no video" in err_str or error == "not_found":
-            cleanup(message.chat.id)
+            cleanup(job)
             await show_progress(status, 2)
-            files, error = await download_photo(url, message.chat.id)
+            files, error = await download_photo(url, job)
 
             if error:
                 await status.edit_text(get_error_text(uid, error))
@@ -1084,7 +1103,7 @@ async def handle_message(client, message: Message):
             except Exception as e:
                 await status.edit_text(f"❌ `{str(e)[:100]}`")
             finally:
-                cleanup(message.chat.id)
+                cleanup(job)
             return
 
     if error:
@@ -1110,7 +1129,7 @@ async def handle_message(client, message: Message):
     except Exception as e:
         await status.edit_text(f"❌ `{str(e)[:100]}`")
     finally:
-        cleanup(message.chat.id)
+        cleanup(job)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1131,7 +1150,7 @@ async def callback_startlang(client, callback: CallbackQuery):
     lang = callback.data.split("|")[1]
     uid = callback.from_user.id
     set_user_lang(uid, lang)
-    name = callback.from_user.first_name
+    name = _md_escape(callback.from_user.first_name)
     await callback.message.edit_text(t(uid, "start", name=name))
 
 
@@ -1501,9 +1520,10 @@ async def callback_find_song(client, callback: CallbackQuery):
 
     status = await callback.message.reply(t(uid, "song_recognizing"))
 
+    job = _new_job(chat_id)
     try:
         # 1) Qo'shiqni aniqlash
-        query, error = await recognize_song(url, chat_id)
+        query, error = await recognize_song(url, job)
         if error:
             if error == "song_not_found":
                 await status.edit_text(t(uid, "song_not_found"))
@@ -1534,7 +1554,7 @@ async def callback_find_song(client, callback: CallbackQuery):
     except Exception as e:
         await status.edit_text(f"❌ `{str(e)[:100]}`")
     finally:
-        cleanup(chat_id)
+        cleanup(job)
 
 
 @app.on_callback_query(filters.regex(r"^song\|"))
@@ -1578,9 +1598,10 @@ async def callback_pick_song(client, callback: CallbackQuery):
     await callback.answer("⬇️", show_alert=False)
     status = await callback.message.reply(t(uid, "song_downloading"))
 
+    job = _new_job(chat_id)
     try:
         start_time = _time.time()
-        files, error, used_index = await download_song_try_all(results, index, query, chat_id)
+        files, error, used_index = await download_song_try_all(results, index, query, job)
 
         if not files:
             await status.edit_text(get_error_text(uid, error) if error else t(uid, "download_error"))
@@ -1616,7 +1637,7 @@ async def callback_pick_song(client, callback: CallbackQuery):
     except Exception as e:
         await status.edit_text(f"❌ `{str(e)[:100]}`")
     finally:
-        cleanup(chat_id)
+        cleanup(job)
 
 
 @app.on_callback_query(filters.regex(r"^fxsong\|"))
@@ -1643,9 +1664,10 @@ async def callback_song_effect(client, callback: CallbackQuery):
     await callback.answer(f"{effect['name']} qo'shilmoqda...", show_alert=False)
     status = await callback.message.reply(f"{effect['name']} qo'shilmoqda...")
 
+    job = _new_job(chat_id)
     try:
         # SoundCloud havoladan yuklab (DRM bo'lsa boshqa variantga o'tadi), keyin effekt qo'shamiz.
-        files, error, _used = await download_song_try_all(results, index, query, chat_id)
+        files, error, _used = await download_song_try_all(results, index, query, job)
         if not files:
             await status.edit_text(get_error_text(uid, error) if error else t(uid, "download_error"))
             return
@@ -1658,7 +1680,7 @@ async def callback_song_effect(client, callback: CallbackQuery):
             for src in files:
                 if src.suffix.lower() not in [".mp3", ".m4a", ".ogg", ".wav", ".opus"]:
                     continue
-                dst = DOWNLOAD_DIR / f"{chat_id}_songfx_{src.stem}.mp3"
+                dst = DOWNLOAD_DIR / f"{job}_songfx_{src.stem}.mp3"
                 cmd = [
                     "ffmpeg", "-y", "-i", str(src),
                     "-af", effect["filter"],
@@ -1693,7 +1715,7 @@ async def callback_song_effect(client, callback: CallbackQuery):
     except Exception as e:
         await status.edit_text(f"❌ `{str(e)[:100]}`")
     finally:
-        cleanup(chat_id)
+        cleanup(job)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1782,6 +1804,7 @@ if __name__ == "__main__":
         await app.start()
         await set_bot_menu()
         logger.info("✅ Bot menu o'rnatildi. Bot ishlayapti...")
-        await asyncio.Event().wait()  # Cheksiz kutish
+        await idle()  # Signal kelguncha kutish (SIGINT/SIGTERM)
+        await app.stop()
 
-    asyncio.get_event_loop().run_until_complete(main())
+    asyncio.run(main())
