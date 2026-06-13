@@ -675,6 +675,60 @@ async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
         return None, f"❌ `{str(e)[:120]}`"
 
 
+async def download_audio_direct(url: str, job: str):
+    """Video havoladan to'g'ridan-to'g'ri audio ajratib MP3 (192kbps) qilib olish.
+    Eng tez yo'l: Shazam/SoundCloud yo'q — faqat bitta yuklash + ffmpeg.
+    Qaytaradi: (files, error, title)."""
+    output_template = str(DOWNLOAD_DIR / f"{job}_audio_%(title).40s.%(ext)s")
+    ydl_opts = {
+        "outtmpl": output_template,
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+    }
+    if _cookie_path:
+        ydl_opts["cookiefile"] = _cookie_path
+
+    # Eski fayllarni tozalash
+    for f in DOWNLOAD_DIR.iterdir():
+        if f.name.startswith(f"{job}_audio_"):
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(url, download=True)
+
+        info = await loop.run_in_executor(None, _download)
+        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(f"{job}_audio_")]
+        title = ""
+        if isinstance(info, dict):
+            title = (info.get("title") or "").strip()
+        if files:
+            return files, None, title
+        return None, "not_found", title
+    except yt_dlp.utils.DownloadError as e:
+        err = str(e).lower()
+        if "private" in err:
+            return None, "private", ""
+        if "login" in err or "sign in" in err or "cookie" in err:
+            return None, "login", ""
+        return None, f"❌ `{str(e)[:120]}`", ""
+    except Exception as e:
+        return None, f"❌ `{str(e)[:120]}`", ""
+
+
 def cleanup(chat_id: int):
     for f in DOWNLOAD_DIR.iterdir():
         if f.name.startswith(f"{chat_id}_"):
@@ -724,7 +778,10 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
             has_video = any(f.suffix.lower() in VIDEO_EXTS for f in media_files)
             buttons = [[InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")]]
             if has_video:
-                buttons.append([InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}")])
+                buttons.append([
+                    InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"dlaudio|{msg_id}"),
+                    InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}"),
+                ])
             await message.reply(
                 "✅ " + str(len(media_files)) + " ta media yuklandi\n@InstaDownloader_uzBot",
                 reply_markup=InlineKeyboardMarkup(buttons)
@@ -752,8 +809,11 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
                     caption=caption,
                     supports_streaming=True,
                     reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"dlaudio|{msg_id}"),
+                            InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}"),
+                        ],
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")],
-                        [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}")]
                     ])
                 )
                 set_cache(url, "video", {"type": "video", "file_id": sent.video.file_id})
@@ -762,8 +822,11 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
                     str(filepath),
                     caption=caption,
                     reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"dlaudio|{msg_id}"),
+                            InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}"),
+                        ],
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{msg_id}")],
-                        [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{msg_id}")]
                     ])
                 )
                 set_cache(url, "video", {"type": "document", "file_id": sent.document.file_id})
@@ -996,8 +1059,11 @@ async def handle_message(client, message: Message):
                     caption=t(uid, "caption_speed", platform=platform, seconds="0.1"),
                     supports_streaming=True,
                     reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"dlaudio|{message.id}"),
+                            InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{message.id}"),
+                        ],
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
-                        [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{message.id}")]
                     ])
                 )
             elif cached_video["type"] == "document":
@@ -1005,8 +1071,11 @@ async def handle_message(client, message: Message):
                     cached_video["file_id"],
                     caption=t(uid, "caption_speed", platform=platform, seconds="0.1"),
                     reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"dlaudio|{message.id}"),
+                            InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{message.id}"),
+                        ],
                         [InlineKeyboardButton(t(uid, "btn_favorite"), callback_data=f"fav|{message.id}")],
-                        [InlineKeyboardButton(t(uid, "btn_find_song"), callback_data=f"findsong|{message.id}")]
                     ])
                 )
             _remember(pending_urls, message.id, url)
@@ -1174,6 +1243,66 @@ async def callback_fav_reset(client, callback: CallbackQuery):
     if r:
         r.delete(f"favorites:{uid}")
     await callback.message.edit_text("✅ Sevimlilar ro'yxati tozalandi.")
+
+
+@app.on_callback_query(filters.regex(r"^dlaudio\|"))
+async def callback_download_audio(client, callback: CallbackQuery):
+    """🎵 Tezkor audio — videoning o'z audiosini Shazam/SoundCloud'siz darhol ajratib yuboradi.
+    Bu eng tez yo'l (bitta yuklash + ffmpeg), boshqa botlardagidek."""
+    msg_id = int(callback.data.split("|")[1])
+    uid = callback.from_user.id
+    chat_id = callback.message.chat.id
+    url = pending_urls.get(msg_id)
+
+    if not url:
+        await callback.answer("⚠️", show_alert=True)
+        return
+
+    # ⚡ CACHE: avval ajratilgan bo'lsa — file_id orqali darhol yuborish
+    cached = get_cache(url, "directaudio")
+    if cached and cached.get("file_id"):
+        try:
+            await callback.answer("⚡", show_alert=False)
+            c_title = cached.get("title") or "Audio"
+            await callback.message.reply_audio(
+                cached["file_id"],
+                caption=f"🎵 {_md_escape(c_title)} | ⚡ keshdan\n@InstaDownloader_uzBot",
+                title=c_title,
+            )
+            return
+        except Exception:
+            pass  # file_id eskirgan — qaytadan ajratamiz
+
+    await callback.answer("🎵", show_alert=False)
+    status = await callback.message.reply(t(uid, "audio_extracting"))
+
+    job = _new_job(chat_id)
+    try:
+        start_time = _time.time()
+        files, error, title = await download_audio_direct(url, job)
+        if not files:
+            await status.edit_text(get_error_text(uid, error) if error else t(uid, "download_error"))
+            return
+
+        elapsed = round(_time.time() - start_time, 1)
+        title = title or "Audio"
+        for filepath in files:
+            sent = await callback.message.reply_audio(
+                str(filepath),
+                caption=f"🎵 {_md_escape(title)} | ⚡ {elapsed}s\n@InstaDownloader_uzBot",
+                title=title,
+            )
+            # ⚡ file_id ni keshlash — keyingi safar darhol
+            try:
+                if sent and sent.audio:
+                    set_cache(url, "directaudio", {"file_id": sent.audio.file_id, "title": title})
+            except Exception:
+                pass
+        await status.delete()
+    except Exception as e:
+        await status.edit_text(f"❌ `{str(e)[:100]}`")
+    finally:
+        cleanup(job)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1807,4 +1936,7 @@ if __name__ == "__main__":
         await idle()  # Signal kelguncha kutish (SIGINT/SIGTERM)
         await app.stop()
 
-    asyncio.run(main())
+    # MUHIM: asyncio.run() yangi event loop yaratadi va Pyrogram dispatcher
+    # import paytida ushlagan loop bilan mos kelmaydi — handlerlar ishlamay qoladi.
+    # app.run() Pyrogram'ning o'z loop'ini ishlatadi — to'g'ri yechim.
+    app.run(main())
