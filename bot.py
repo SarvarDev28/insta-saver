@@ -1380,8 +1380,8 @@ async def search_soundcloud_songs(query: str, limit: int = 5):
 
 
 async def download_audio_from_url(url: str, chat_id: int):
-    """Berilgan havoladan (SoundCloud va h.k.) to'g'ridan-to'g'ri MP3 (192kbps) yuklab olish.
-    SoundCloud bepul treklari ~128kbps, shuning uchun 192 yetarli va tezroq."""
+    """Berilgan havoladan (SoundCloud va h.k.) to'g'ridan-to'g'ri MP3 (320kbps) yuklab olish.
+    Eng yuqori sifat uchun MP3 maksimumi — 320kbps."""
     output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
@@ -1392,7 +1392,7 @@ async def download_audio_from_url(url: str, chat_id: int):
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
-            "preferredquality": "192",
+            "preferredquality": "320",
         }],
     }
 
@@ -1459,7 +1459,7 @@ async def download_song_from_soundcloud(query: str, chat_id: int):
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
-            "preferredquality": "192",
+            "preferredquality": "320",
         }],
     }
 
@@ -1684,7 +1684,7 @@ async def callback_song_effect(client, callback: CallbackQuery):
                 cmd = [
                     "ffmpeg", "-y", "-i", str(src),
                     "-af", effect["filter"],
-                    "-b:a", "192k",
+                    "-b:a", "320k",
                     str(dst),
                 ]
                 try:
