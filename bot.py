@@ -1807,4 +1807,8 @@ if __name__ == "__main__":
         await idle()  # Signal kelguncha kutish (SIGINT/SIGTERM)
         await app.stop()
 
-    asyncio.run(main())
+    # MUHIM: asyncio.run() yangi event loop yaratadi va Pyrogram dispatcher
+    # import paytida ushlagan loop bilan mos kelmaydi — natijada handlerlar
+    # ishlamay qoladi (bot ishga tushadi-yu, xabarlarga javob bermaydi).
+    # app.run() Pyrogram'ning o'z loop'ini ishlatadi — to'g'ri yechim.
+    app.run(main())
