@@ -561,18 +561,33 @@ async def download_video(url: str, job: str):
     output_template = str(DOWNLOAD_DIR / f"{job}_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
-        # H.264 (avc) kodekni afzal ko'rish — Telegram telefon pleyeri uchun
+        # Avvalo H.264+m4a (Telegram'da to'g'ridan stream bo'ladi),
+        # bo'lmasa har qanday eng yaxshi video+audio ni olib mp4 ga merge qiladi.
+        # H.265/VP9 kabi formatlar ham shu yo'l bilan qoplanadi.
         "format": (
             "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
-            "best[ext=mp4][vcodec^=avc1]/"
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+            "bestvideo+bestaudio/"
             "best[ext=mp4]/best"
         ),
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
+        # H.264 ga convert qilish (agar boshqa kodek bo'lsa) + faststart
+        "postprocessors": [{
+            "key": "FFmpegVideoConvertor",
+            "preferedformat": "mp4",
+        }],
         "postprocessor_args": {
-            "merger": ["-c", "copy", "-movflags", "+faststart"]
+            "videoconvertor": [
+                "-c:v", "libx264",
+                "-c:a", "aac",
+                "-movflags", "+faststart",
+                "-preset", "fast",
+                "-crf", "23",
+            ],
+            "merger": ["-c", "copy", "-movflags", "+faststart"],
         },
     }
     if _cookie_path:
