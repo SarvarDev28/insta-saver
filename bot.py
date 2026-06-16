@@ -557,8 +557,8 @@ async def check_subscription(client, user_id: int) -> bool:
 # ⬇️ YUKLAB OLISH FUNKSIYALARI
 # ═══════════════════════════════════════════════════════════
 
-async def download_video(url: str, chat_id: int):
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_%(title).40s.%(ext)s")
+async def download_video(url: str, job: str):
+    output_template = str(DOWNLOAD_DIR / f"{job}_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
         # H.264 (avc) kodekni afzal ko'rish — Telegram telefon pleyeri uchun
@@ -577,10 +577,10 @@ async def download_video(url: str, chat_id: int):
     }
     if _cookie_path:
         ydl_opts["cookiefile"] = _cookie_path
-    return await _execute_download(url, chat_id, ydl_opts)
+    return await _execute_download(url, job, ydl_opts)
 
 
-async def download_photo(url: str, chat_id: int):
+async def download_photo(url: str, job: str):
     """Rasmni yuklab olish — instaloader orqali"""
     try:
         loop = asyncio.get_running_loop()
@@ -615,19 +615,19 @@ async def download_photo(url: str, chat_id: int):
                 for i, node in enumerate(post.get_sidecar_nodes()):
                     if not node.is_video:
                         img_url = node.display_url
-                        filepath = DOWNLOAD_DIR / f"{chat_id}_photo_{i}.jpg"
+                        filepath = DOWNLOAD_DIR / f"{job}_photo_{i}.jpg"
                         urllib.request.urlretrieve(img_url, str(filepath))
                         downloaded.append(filepath)
                     else:
                         # Carousel dagi video
                         vid_url = node.video_url
-                        filepath = DOWNLOAD_DIR / f"{chat_id}_video_{i}.mp4"
+                        filepath = DOWNLOAD_DIR / f"{job}_video_{i}.mp4"
                         urllib.request.urlretrieve(vid_url, str(filepath))
                         downloaded.append(filepath)
             else:
                 if not post.is_video:
                     img_url = post.url
-                    filepath = DOWNLOAD_DIR / f"{chat_id}_photo_0.jpg"
+                    filepath = DOWNLOAD_DIR / f"{job}_photo_0.jpg"
                     urllib.request.urlretrieve(img_url, str(filepath))
                     downloaded.append(filepath)
 
@@ -646,7 +646,7 @@ async def download_photo(url: str, chat_id: int):
         return None, f"❌ Yuklab bo'lmadi: `{str(e)[:100]}`"
 
 
-async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
+async def _execute_download(url: str, job: str, ydl_opts: dict):
     try:
         loop = asyncio.get_running_loop()
 
@@ -656,7 +656,7 @@ async def _execute_download(url: str, chat_id: int, ydl_opts: dict):
 
         await loop.run_in_executor(None, _download)
 
-        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(f"{chat_id}_")]
+        files = [f for f in DOWNLOAD_DIR.iterdir() if f.name.startswith(f"{job}_")]
         if files:
             return files, None
         return None, "not_found"
@@ -729,9 +729,9 @@ async def download_audio_direct(url: str, job: str):
         return None, f"❌ `{str(e)[:120]}`", ""
 
 
-def cleanup(chat_id: int):
+def cleanup(job: str):
     for f in DOWNLOAD_DIR.iterdir():
-        if f.name.startswith(f"{chat_id}_"):
+        if f.name.startswith(f"{job}_"):
             try:
                 f.unlink()
             except Exception:
@@ -1386,14 +1386,14 @@ def _song_fx_markup(msg_id: int, index: int) -> InlineKeyboardMarkup:
     ])
 
 
-async def recognize_song(url: str, chat_id: int):
+async def recognize_song(url: str, job: str):
     """IG havoladan qisqa audio bo'lak olib, Shazam orqali qo'shiqni aniqlash.
     Tezlik uchun: to'liq 320kbps MP3 emas, xom audio yuklanadi va faqat
     birinchi ~15 soniya o'qib olinadi. Qaytaradi: (query_str, error)."""
     loop = asyncio.get_running_loop()
 
     # 1) Xom audio (qayta kodlashsiz) ni tez yuklab olish
-    raw_template = str(DOWNLOAD_DIR / f"{chat_id}_recog.%(ext)s")
+    raw_template = str(DOWNLOAD_DIR / f"{job}_recog.%(ext)s")
     ydl_opts = {
         "outtmpl": raw_template,
         "format": "bestaudio/best",
@@ -1408,7 +1408,7 @@ async def recognize_song(url: str, chat_id: int):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.extract_info(url, download=True)
         for f in DOWNLOAD_DIR.iterdir():
-            if f.name.startswith(f"{chat_id}_recog."):
+            if f.name.startswith(f"{job}_recog."):
                 return f
         return None
 
@@ -1428,7 +1428,7 @@ async def recognize_song(url: str, chat_id: int):
         return None, "not_found"
 
     # 2) Faqat birinchi ~15 soniyani past sifatli (mono 16kHz) bo'lakka aylantirish
-    snippet = DOWNLOAD_DIR / f"{chat_id}_shazam.ogg"
+    snippet = DOWNLOAD_DIR / f"{job}_shazam.ogg"
 
     def _make_snippet():
         import subprocess
@@ -1508,10 +1508,10 @@ async def search_soundcloud_songs(query: str, limit: int = 5):
         return [], f"❌ `{str(e)[:100]}`"
 
 
-async def download_audio_from_url(url: str, chat_id: int):
+async def download_audio_from_url(url: str, job: str):
     """Berilgan havoladan (SoundCloud va h.k.) to'g'ridan-to'g'ri MP3 (320kbps) yuklab olish.
     Eng yuqori sifat uchun MP3 maksimumi — 320kbps."""
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
+    output_template = str(DOWNLOAD_DIR / f"{job}_song_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
         "format": "bestaudio/best",
@@ -1526,7 +1526,7 @@ async def download_audio_from_url(url: str, chat_id: int):
     }
 
     for f in DOWNLOAD_DIR.iterdir():
-        if f.name.startswith(f"{chat_id}_song_"):
+        if f.name.startswith(f"{job}_song_"):
             try:
                 f.unlink()
             except Exception:
@@ -1541,7 +1541,7 @@ async def download_audio_from_url(url: str, chat_id: int):
 
         await loop.run_in_executor(None, _download)
         files = [f for f in DOWNLOAD_DIR.iterdir()
-                 if f.name.startswith(f"{chat_id}_song_")]
+                 if f.name.startswith(f"{job}_song_")]
         if files:
             return files, None
         return None, "not_found"
@@ -1549,7 +1549,7 @@ async def download_audio_from_url(url: str, chat_id: int):
         return None, f"❌ `{str(e)[:120]}`"
 
 
-async def download_song_try_all(results: list, start_index: int, query: str, chat_id: int):
+async def download_song_try_all(results: list, start_index: int, query: str, job: str):
     """Tanlangan variantdan boshlab, yuklab bo'ladiganini topguncha urinadi.
     Ba'zi SoundCloud treklari DRM bilan himoyalangan — ular o'tkazib yuboriladi.
     Qaytaradi: (files, error, used_index)."""
@@ -1560,24 +1560,24 @@ async def download_song_try_all(results: list, start_index: int, query: str, cha
         url = results[idx].get("url") if 0 <= idx < n else None
         if not url:
             continue
-        files, error = await download_audio_from_url(url, chat_id)
+        files, error = await download_audio_from_url(url, job)
         if files:
             return files, None, idx
         last_error = error
     # Hech qaysi variant ishlamasa — nom bo'yicha qayta qidirib ko'ramiz
     if query:
-        files, error = await download_song_from_soundcloud(query, chat_id)
+        files, error = await download_song_from_soundcloud(query, job)
         if files:
             return files, None, start_index
         last_error = error or last_error
     return None, last_error, start_index
 
 
-async def download_song_from_soundcloud(query: str, chat_id: int):
+async def download_song_from_soundcloud(query: str, job: str):
     """SoundCloud'dan qo'shiqni nom bo'yicha qidirib MP3 yuklab olish.
     YouTube serverda bloklanganda zaxira manba sifatida ishlatiladi.
     SoundCloud cookie talab qilmaydi va cloud IP'larni bloklamaydi."""
-    output_template = str(DOWNLOAD_DIR / f"{chat_id}_song_%(title).40s.%(ext)s")
+    output_template = str(DOWNLOAD_DIR / f"{job}_song_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
         "format": "bestaudio/best",
@@ -1594,7 +1594,7 @@ async def download_song_from_soundcloud(query: str, chat_id: int):
 
     # Eski fayllarni tozalash
     for f in DOWNLOAD_DIR.iterdir():
-        if f.name.startswith(f"{chat_id}_song_"):
+        if f.name.startswith(f"{job}_song_"):
             try:
                 f.unlink()
             except Exception:
@@ -1609,7 +1609,7 @@ async def download_song_from_soundcloud(query: str, chat_id: int):
 
         await loop.run_in_executor(None, _download)
         files = [f for f in DOWNLOAD_DIR.iterdir()
-                 if f.name.startswith(f"{chat_id}_song_")]
+                 if f.name.startswith(f"{job}_song_")]
         if files:
             return files, None
         return None, "not_found"
