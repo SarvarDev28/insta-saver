@@ -1478,6 +1478,7 @@ async def handle_message(client, message: Message):
         ]
         if stage >= len(stages):
             stage = len(stages) - 1
+        
         emoji, text_stage, percent = stages[stage]
         filled = int(percent / 10)
         empty = 10 - filled
@@ -1490,8 +1491,8 @@ async def handle_message(client, message: Message):
         )
         try:
             await status_msg.edit_text(progress_text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Progress yangilanmadi: {e}")
 
     status = await message.reply(
         "🔍 **Link tekshirilmoqda**\n\n"
@@ -1503,8 +1504,7 @@ async def handle_message(client, message: Message):
     await show_progress(status, 1)
 
     # VIDEO yuklab olish
-    await asyncio.sleep(0.2)
-    await show_progress(status, 2)
+    await show_progress(status, 2)  # 50% - Yuklab olinmoqda
     files, error = await download_video(url, job)
 
     # Agar video bo'lmasa — rasm sifatida urinib ko'ramiz (faqat Instagram)
@@ -1512,7 +1512,7 @@ async def handle_message(client, message: Message):
         err_str = str(error).lower()
         if "no video" in err_str or "not a video" in err_str or "there is no video" in err_str or error == "not_found":
             cleanup(job)
-            await show_progress(status, 2)
+            await show_progress(status, 2)  # Qayta 50%
             files, error = await download_photo(url, job)
 
             if error:
@@ -1526,7 +1526,7 @@ async def handle_message(client, message: Message):
             # Tezlik hisoblash
             elapsed = round(_time.time() - start_time, 1)
             caption = t(uid, "caption_speed", platform=platform, seconds=elapsed)
-            await show_progress(status, 4)
+            await show_progress(status, 4)  # 90% - Telegramga yuborilmoqda
 
             try:
                 await send_media_files(message, files, caption, uid, message.id, url)
@@ -1540,25 +1540,33 @@ async def handle_message(client, message: Message):
 
     if error:
         await status.edit_text(get_error_text(uid, error))
+        cleanup(job)
         return
 
     if not files:
         await status.edit_text(t(uid, "download_error"))
+        cleanup(job)
         return
 
+    # Video qayta ishlanmoqda
+    await show_progress(status, 3)  # 75% - Qayta ishlanmoqda
+    
     # Tezlik hisoblash
-    await show_progress(status, 3)
-    await asyncio.sleep(0.2)
-    await show_progress(status, 4)
     elapsed = round(_time.time() - start_time, 1)
     caption = t(uid, "caption_speed", platform=platform, seconds=elapsed)
+    
+    # Telegramga yuborish
+    await show_progress(status, 4)  # 90% - Telegramga yuborilmoqda
 
     try:
         await send_media_files(message, files, caption, uid, message.id, url)
         _remember(pending_urls, message.id, url)
+        await show_progress(status, 5)  # 100% - Tayyor!
+        await asyncio.sleep(0.5)  # Foydalanuvchi 100% ni ko'rishi uchun
         await status.delete()
 
     except Exception as e:
+        logger.error(f"❌ Fayl yuborishda xato: {e}")
         await status.edit_text(f"❌ `{str(e)[:100]}`")
     finally:
         cleanup(job)
