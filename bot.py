@@ -831,6 +831,32 @@ def get_error_text(user_id: int, error: str) -> str:
     return t(user_id, "download_error")
 
 
+def _get_video_meta(filepath) -> dict:
+    """ffprobe bilan video width/height/duration olish.
+    Telegram bu ma'lumotlarsiz videoni audio deb ko'rsatishi mumkin."""
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height,duration",
+                "-of", "csv=p=0",
+                str(filepath),
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        ).decode().strip()
+        parts = out.split(",")
+        return {
+            "width": int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else 0,
+            "height": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
+            "duration": int(float(parts[2])) if len(parts) > 2 and parts[2] else 0,
+        }
+    except Exception:
+        return {"width": 0, "height": 0, "duration": 0}
+
+
 async def send_media_files(message, files, caption, uid, msg_id, url):
     """Fayllarni yuborish:
     - Bitta fayl bo'lsa — tugmalar bilan oddiy yuboradi
@@ -851,7 +877,15 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
             if ext in PHOTO_EXTS:
                 media_group.append(InputMediaPhoto(str(filepath), caption=cap))
             else:
-                media_group.append(InputMediaVideo(str(filepath), caption=cap, supports_streaming=True))
+                meta = _get_video_meta(filepath)
+                media_group.append(InputMediaVideo(
+                    str(filepath),
+                    caption=cap,
+                    supports_streaming=True,
+                    width=meta["width"] or None,
+                    height=meta["height"] or None,
+                    duration=meta["duration"] or None,
+                ))
 
         try:
             await message.reply_media_group(media_group)
@@ -884,11 +918,15 @@ async def send_media_files(message, files, caption, uid, msg_id, url):
     for filepath in files:
         ext = filepath.suffix.lower()
         if ext in VIDEO_EXTS:
+            meta = _get_video_meta(filepath)
             try:
                 sent = await message.reply_video(
                     str(filepath),
                     caption=caption,
                     supports_streaming=True,
+                    width=meta["width"] or None,
+                    height=meta["height"] or None,
+                    duration=meta["duration"] or None,
                     reply_markup=InlineKeyboardMarkup([
                         [
                             InlineKeyboardButton(t(uid, "btn_audio"), callback_data=f"dlaudio|{msg_id}"),
