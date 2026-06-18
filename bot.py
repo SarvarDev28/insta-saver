@@ -561,38 +561,104 @@ async def download_video(url: str, job: str):
     output_template = str(DOWNLOAD_DIR / f"{job}_%(title).40s.%(ext)s")
     ydl_opts = {
         "outtmpl": output_template,
-        # Avvalo H.264+m4a (Telegram'da to'g'ridan stream bo'ladi),
-        # bo'lmasa har qanday eng yaxshi video+audio ni olib mp4 ga merge qiladi.
-        # H.265/VP9 kabi formatlar ham shu yo'l bilan qoplanadi.
+        # H.264 + AAC — telefon pleyerlari uchun eng keng qo'llab-quvvatlanadigan format.
+        # vcodec^=avc1: H.264 ni qidiradi. Topilmasa — har qanday yuklab, keyin re-encode.
         "format": (
             "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+            "bestvideo[vcodec^=avc1]+bestaudio/"
             "bestvideo+bestaudio/"
-            "best[ext=mp4]/best"
+            "best"
         ),
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
-        # H.264 ga convert qilish (agar boshqa kodek bo'lsa) + faststart
-        "postprocessors": [{
-            "key": "FFmpegVideoConvertor",
-            "preferedformat": "mp4",
-        }],
+        # merge: audio AAC ga o'tkazish + moov atom boshiga (faststart)
         "postprocessor_args": {
-            "videoconvertor": [
-                "-c:v", "libx264",
-                "-c:a", "aac",
-                "-movflags", "+faststart",
-                "-preset", "fast",
-                "-crf", "23",
-            ],
-            "merger": ["-c", "copy", "-movflags", "+faststart"],
+            "merger": ["-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart"],
         },
     }
     if _cookie_path:
         ydl_opts["cookiefile"] = _cookie_path
-    return await _execute_download(url, job, ydl_opts)
+
+    files, error = await _execute_download(url, job, ydl_opts)
+
+    # Agar video H.264 emas bo'lsa — ffmpeg bilan re-encode qilamiz
+    if files and not error:
+        files = await _ensure_h264(files, job)
+
+    return files, error
+
+
+async def _ensure_h264(files: list, job: str) -> list:
+    """Video H.264 (avc1) kodekda emasligini tekshirib, kerak bo'lsa re-encode qiladi.
+    Bu telefonda video qotib qolishining asosiy sababini bartaraf etadi."""
+    import subprocess
+    loop = asyncio.get_running_loop()
+    result = []
+
+    for filepath in files:
+        if filepath.suffix.lower() not in {".mp4", ".mov", ".mkv", ".webm"}:
+            result.append(filepath)
+            continue
+
+        def _check_codec(fp=filepath):
+            try:
+                out = subprocess.check_output(
+                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                     "-show_entries", "stream=codec_name",
+                     "-of", "default=noprint_wrappers=1:nokey=1",
+                     str(fp)],
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+                return out.decode().strip()
+            except Exception:
+                return ""
+
+        codec = await loop.run_in_executor(None, _check_codec)
+
+        # H.264 bo'lsa — hech narsa qilmaymiz
+        if codec in ("h264", "avc1", "avc"):
+            result.append(filepath)
+            continue
+
+        # Boshqa kodek (H.265, VP9 va h.k.) — H.264 ga convert
+        out_path = filepath.with_name(f"{job}_h264.mp4")
+
+        def _convert(fp=filepath, op=out_path):
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", "-i", str(fp),
+                        "-c:v", "libx264",
+                        "-c:a", "aac",
+                        "-preset", "fast",
+                        "-crf", "23",
+                        "-movflags", "+faststart",
+                        str(op),
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=180,
+                )
+                return True
+            except Exception:
+                return False
+
+        success = await loop.run_in_executor(None, _convert)
+        if success and out_path.exists():
+            try:
+                filepath.unlink()
+            except Exception:
+                pass
+            result.append(out_path)
+            logger.info(f"✅ Re-encoded: {filepath.name} ({codec} -> h264)")
+        else:
+            result.append(filepath)  # convert bo'lmasa asl faylni yuboramiz
+
+    return result
 
 
 async def download_photo(url: str, job: str):
